@@ -1,13 +1,13 @@
 :root {
-  --verde: #22c55e;
-  --giallo: #eab308;
-  --arancione: #f97316;
-  --rosso: #ef4444;
-  --sfondo: #f4f6f8;
+  --green: #22c55e;
+  --yellow: #eab308;
+  --orange: #f97316;
+  --red: #ef4444;
+  --background: #f4f6f8;
   --card: #ffffff;
-  --testo: #1f2937;
-  --testo-chiaro: #6b7280;
-  --bordo: #e5e7eb;
+  --text: #1f2937;
+  --text-muted: #6b7280;
+  --border: #e5e7eb;
 }
 
 * {
@@ -22,11 +22,11 @@ body {
 body {
   margin: 0;
   font-family: 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
-  background: var(--sfondo);
-  color: var(--testo);
+  background: var(--background);
+  color: var(--text);
 }
 
-/* ---------- layout fluido: occupa tutta la finestra ---------- */
+/* ---------- fluid layout: fills the whole window ---------- */
 .app {
   min-height: 100vh;
   padding: 1rem clamp(1rem, 3vw, 2.5rem);
@@ -49,16 +49,16 @@ body {
   margin: 0;
 }
 
-.header .sottotitolo {
+.header .subtitle {
   margin: 0.15rem 0 0;
-  color: var(--testo-chiaro);
+  color: var(--text-muted);
   font-size: 0.9rem;
 }
 
 .btn {
-  border: 1px solid var(--bordo);
+  border: 1px solid var(--border);
   background: var(--card);
-  color: var(--testo);
+  color: var(--text);
   padding: 0.55rem 1.1rem;
   border-radius: 8px;
   cursor: pointer;
@@ -75,7 +75,7 @@ body {
   cursor: wait;
 }
 
-.errore {
+.error {
   background: #fef2f2;
   border: 1px solid #fecaca;
   color: #b91c1c;
@@ -84,17 +84,17 @@ body {
   margin: 0;
 }
 
-.vuoto {
+.empty {
   text-align: center;
-  color: var(--testo-chiaro);
+  color: var(--text-muted);
   padding: 2rem 1rem;
   background: var(--card);
-  border: 1px dashed var(--bordo);
+  border: 1px dashed var(--border);
   border-radius: 12px;
 }
 
-/* ---------- riga superiore: gauge grande a sinistra + griglia a destra ---------- */
-.corpo {
+/* ---------- top row: main gauge on the left + grid on the right ---------- */
+.body {
   flex: 1;
   min-height: 0;
   display: grid;
@@ -103,10 +103,10 @@ body {
   align-items: stretch;
 }
 
-/* Gauge indice grande, a sinistra */
-.sezione-principale {
+/* Main (large) gauge, left */
+.main-section {
   background: var(--card);
-  border: 1px solid var(--bordo);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 1rem 1.5rem;
   display: flex;
@@ -116,22 +116,22 @@ body {
   overflow: hidden;
 }
 
-.sezione-principale .gauge-svg {
+.main-section .gauge-svg {
   max-width: 460px;
 }
 
-.sezione-principale .testo-valore {
+.main-section .value-text {
   font-size: 44px;
 }
 
-.sezione-principale .testo-zona {
+.main-section .zone-text {
   font-size: 19px;
 }
 
-/* Griglia 13 metriche, a destra (scroll interno) */
-.griglia {
+/* Metrics grid, right (internal scroll) */
+.grid {
   background: var(--card);
-  border: 1px solid var(--bordo);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 1rem;
   display: flex;
@@ -140,17 +140,17 @@ body {
   overflow: hidden;
 }
 
-.griglia {
+.grid {
   overflow-y: auto;
 }
 
-.griglia h2 {
+.grid h2 {
   font-size: 1.1rem;
   margin: 0 0 0.8rem;
   flex: none;
 }
 
-.griglia-card {
+.grid-cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   gap: 0.8rem;
@@ -159,7 +159,7 @@ body {
 
 .card {
   background: var(--card);
-  border: 1px solid var(--bordo);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 0.8rem;
   display: flex;
@@ -177,17 +177,17 @@ body {
   margin: 0.4rem 0 0.15rem;
 }
 
-.card .perche {
+.card .why {
   font-size: 0.76rem;
-  color: var(--testo-chiaro);
+  color: var(--text-muted);
   margin: 0;
   line-height: 1.25;
 }
 
-/* ---------- andamento sotto, tutta larghezza ---------- */
-.storico {
+/* ---------- trend below, full width ---------- */
+.history {
   background: var(--card);
-  border: 1px solid var(--bordo);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 1rem 1.25rem;
   display: flex;
@@ -196,13 +196,13 @@ body {
   flex: 1.1;
 }
 
-.storico h2 {
+.history h2 {
   font-size: 1.1rem;
   margin: 0 0 0.7rem;
   flex: none;
 }
 
-.controlli {
+.controls {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -211,15 +211,15 @@ body {
   flex: none;
 }
 
-.controlli .btn.attivo {
-  background: var(--testo);
+.controls .btn.active {
+  background: var(--text);
   color: #fff;
-  border-color: var(--testo);
+  border-color: var(--text);
 }
 
-.controlli input[type='date'] {
+.controls input[type='date'] {
   padding: 0.45rem 0.6rem;
-  border: 1px solid var(--bordo);
+  border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 0.9rem;
   background: #fff;
@@ -244,46 +244,46 @@ body {
   display: block;
 }
 
-.gauge .pista {
+.gauge .track {
   stroke: #eceff1;
   stroke-width: 18;
   fill: none;
   stroke-linecap: round;
 }
 
-.gauge .segmento {
+.gauge .segment {
   stroke-width: 18;
   fill: none;
   stroke-linecap: round;
 }
 
-.gauge .ago {
+.gauge .needle {
   stroke: #111827;
   stroke-width: 4;
   stroke-linecap: round;
 }
 
-.gauge .perno {
+.gauge .pivot {
   fill: #111827;
 }
 
-.gauge .perno-centro {
+.gauge .pivot-center {
   fill: #ffffff;
 }
 
-.gauge .testo-valore {
+.gauge .value-text {
   font-size: 30px;
   font-weight: 700;
   fill: #111827;
 }
 
-.gauge .testo-zona {
+.gauge .zone-text {
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.05em;
 }
 
-.gauge .etichetta {
+.gauge .label {
   margin-top: 0.4rem;
   font-size: 0.95rem;
   font-weight: 600;
@@ -291,11 +291,11 @@ body {
 
 /* ---------- responsive ---------- */
 @media (max-width: 920px) {
-  .corpo {
+  .body {
     grid-template-columns: 1fr;
   }
 
-  .griglia {
+  .grid {
     overflow: visible;
     max-height: none;
   }

@@ -1,31 +1,31 @@
 /**
- * Utility UI generiche.
+ * Generic UI utilities.
  *
- * IMPORTANTE: il frontend NON contiene alcuna metrica specifica (né chiavi,
- * né nomi, né soglie, né pesi). Tutto il setup arriva dal backend via
- * GET /api/config; i dati puntuali via GET /api/metriche*.
- * Qui restano solo utility universali (zone e formattazione numeri).
+ * IMPORTANT: the frontend does NOT contain any specific metric (no keys,
+ * names, thresholds or weights). The whole setup comes from the backend via
+ * GET /api/config; point data via GET /api/metrics*.
+ * Only universal utilities live here (zones and number formatting).
  */
 
-/** Colori e label delle zone (semantica universale verde/giallo/arancio/rosso). */
+/** Colors and labels of the zones (universal green/yellow/orange/red semantics). */
 export const ZONE = {
-  verde: { colore: '#22c55e', etichetta: 'Verde' },
-  giallo: { colore: '#eab308', etichetta: 'Giallo' },
-  arancione: { colore: '#f97316', etichetta: 'Arancione' },
-  rosso: { colore: '#ef4444', etichetta: 'Rosso' },
+  green:  { color: '#22c55e', label: 'Green' },
+  yellow: { color: '#eab308', label: 'Yellow' },
+  orange: { color: '#f97316', label: 'Orange' },
+  red:    { color: '#ef4444', label: 'Red' },
 };
 
-/** Zona (stringa) per un punteggio 0–100 (fallback se il dato non la fornisce). */
-export function zona(score) {
+/** Zone (string) for a 0–100 score (fallback if the data does not provide it). */
+export function zone(score) {
   const s = Number(score) || 0;
-  if (s <= 25) return 'verde';
-  if (s <= 50) return 'giallo';
-  if (s <= 75) return 'arancione';
-  return 'rosso';
+  if (s <= 25) return 'green';
+  if (s <= 50) return 'yellow';
+  if (s <= 75) return 'orange';
+  return 'red';
 }
 
-/** Formatta un numero: intero senza decimali, altrimenti 1 decimale. */
-export function formatoNumero(v) {
+/** Formats a number: integer without decimals, otherwise 1 decimal. */
+export function formatNumber(v) {
   const n = Number(v) || 0;
   if (Number.isInteger(n)) return String(n);
   return n.toFixed(1);

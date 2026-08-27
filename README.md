@@ -1,329 +1,331 @@
 # Dashboard KPI
 
-Dashboard KPI generica e configurabile: un indice aggregato 0–100 ottenuto
-dalla somma pesata di più metriche, con gauge, mini-gauge e storico.
+Generic, configurable KPI dashboard: a 0–100 aggregate index obtained from
+the weighted sum of several metrics, with gauges, mini-gauges and history.
 
-Il frontend è **completamente generico**: non contiene alcuna metrica
-specifica né riferimenti aziendali. Tutto il setup arriva dal backend.
+The frontend is **completely generic**: it contains no specific metric and
+no company references. The whole setup comes from the backend.
 
-## Architettura
+## Architecture
 
 ```
-Collector ──(ogni giorno, POST Bearer)──▶ PHP API + SQLite
-  raccoglie i dati                        (shared hosting, no SSH)
-                                          GET /api/config        (setup)
-                                          GET /api/metriche/*    (dati)
-                                          Dashboard statico (Vue)
+Collector ──(daily, POST Bearer)──▶ PHP API + SQLite
+  gathers data                     (shared hosting, no SSH)
+                                   GET /api/config        (setup)
+                                   GET /api/metrics/*     (data)
+                                   Static dashboard (Vue)
 ```
 
-- **`deploy/`** — parte server, da caricare **così com'è** via FTP:
-  - `api/metriche.php` — l'intero backend (PHP 7.4+/8.x, PDO_SQLITE, zero dipendenze)
-  - `api/.htaccess` — rewrite per `/api/metriche`, `/api/metriche/latest`, `/api/config`
-  - `data/config.php` — **unica fonte di verità del setup**:
-    `API_TOKEN`, `DB_PATH`, credenziali Basic opzionali, `METRICHE`
-    (chiavi, nomi, descrizioni, soglie G/Y/O, pesi), titolo/sottotitolo
-  - `data/.htaccess` — blocca l'accesso a `data/`
-  - `.htaccess` — Basic Auth per dashboard + GET API (POST esentata)
-- **`frontend/`** — app **Vue 3 + Vite + Chart.js**, build solo in locale:
-  `npm install && npm run build` → caricare il contenuto di `dist/` in webroot.
-  Non contiene alcuna metrica hardcoded: carica il setup da `GET /api/config`.
-- **`.github/workflows/prod-deploy.yml`** — (opzionale) CI: build + deploy FTP.
+- **`deploy/`** — server side, to be uploaded **as-is** via FTP:
+  - `api/metrics.php` — the whole backend (PHP 7.4+/8.x, PDO_SQLITE, zero dependencies)
+  - `api/.htaccess` — rewrites for `/api/metrics`, `/api/metrics/latest`, `/api/config`
+  - `data/config.php` — **default setup**: `API_TOKEN`, `DB_PATH`, optional
+    Basic credentials, `METRICS` (keys, names, descriptions, G/Y/O
+    thresholds, weights), title/subtitle
+  - `data/.htaccess` — blocks access to `data/`
+  - `.htaccess` — Basic Auth for dashboard + GET API (POST exempted)
+- **`frontend/`** — **Vue 3 + Vite + Chart.js** app, build only locally:
+  `npm install && npm run build` → upload the content of `dist/` to the
+  webroot. It contains no hardcoded metric: it loads the setup from
+  `GET /api/config`.
+- **`.github/workflows/prod-deploy.yml`** — (optional) CI: build + FTP deploy.
 
 ## API
 
-| Metodo | Path | Auth | Descrizione |
+| Method | Path | Auth | Description |
 |---|---|---|---|
-| POST | `/api/config` | `Authorization: Bearer <API_TOKEN>` | **Invia/aggiorna il setup** (chiavi, nomi, descrizioni, pesi, range G/Y/O, titolo) |
-| GET | `/api/config` | Basic Auth | **Recupera il setup** (stesso formato del POST) |
-| POST | `/api/metriche` | `Authorization: Bearer <API_TOKEN>` | Salva/sostituisce lo snapshot del giorno (idempotente per data) |
-| GET | `/api/metriche/latest` | Basic Auth | Ultimo snapshot per i gauges |
-| GET | `/api/metriche?da=YYYY-MM-DD&a=YYYY-MM-DD` | Basic Auth | Storico (default ultimi 30 giorni) |
+| POST | `/api/config` | `Authorization: Bearer <API_TOKEN>` | **Send/update the setup** (keys, names, descriptions, weights, G/Y/O ranges, title) |
+| GET | `/api/config` | Basic Auth | **Read the setup** (same format as the POST) |
+| POST | `/api/metrics` | `Authorization: Bearer <API_TOKEN>` | Save/replace the daily snapshot (idempotent per date) |
+| GET | `/api/metrics/latest` | Basic Auth | Latest snapshot for the gauges |
+| GET | `/api/metrics?from=YYYY-MM-DD&to=YYYY-MM-DD` | Basic Auth | History (default last 30 days) |
 
-Il server **ricalcola** sempre punteggi (0–100) e indice aggregato dai valori
-grezzi usando le soglie e i pesi della configurazione **attiva**: quella
-inviata con `POST /api/config` se presente, altrimenti i default in
-`deploy/data/config.php`. Non si fida del client. Lo snapshot di una data
-già esistente viene **sostituito** (UNIQUE su `data`+`metrica_key`).
+The server **always recomputes** scores (0–100) and the aggregate index from
+the raw values using the thresholds and weights of the **active**
+configuration: the one sent with `POST /api/config` if present, otherwise
+the defaults in `deploy/data/config.php`. It never trusts the client. A
+snapshot for an existing date is **replaced** (UNIQUE on `date`+`metric_key`).
 
-### GET /api/config — esempio di risposta
+### GET /api/config — example response
 
 ```json
 {
-  "titolo": "Dashboard KPI",
-  "sottotitolo": "aggiornamento giornaliero alle 20:00",
-  "metriche": {
-    "esempio_uno":  { "nome": "Esempio uno",  "perche": "perché conta", "G": 0, "Y": 3, "O": 6, "peso": 0.6 },
-    "esempio_due":  { "nome": "Esempio due",  "perche": "perché conta", "G": 0, "Y": 2, "O": 5, "peso": 0.4 }
+  "title": "Dashboard KPI",
+  "subtitle": "updated daily at 20:00",
+  "metrics": {
+    "example_one": { "name": "Example one", "why": "why it matters", "G": 0, "Y": 3, "O": 6, "weight": 0.6 },
+    "example_two": { "name": "Example two", "why": "why it matters", "G": 0, "Y": 2, "O": 5, "weight": 0.4 }
   }
 }
 ```
 
-Il frontend renderizza i gauge dalle chiavi/nomi/descrizioni di questa
-risposta: per cambiare le metriche basta inviare una nuova configurazione
-con `POST /api/config` (o, come default, modificare `METRICHE` in
-`deploy/data/config.php`) — nessuna modifica al frontend.
+The frontend renders the gauges from the keys/names/descriptions of this
+response: to change the metrics, send a new configuration with
+`POST /api/config` (or, as a default, edit `METRICS` in
+`deploy/data/config.php`) — no frontend change needed.
 
-### POST /api/config — invio della configurazione
+### POST /api/config — sending the configuration
 
-Formato identico a quello di GET. I **pesi devono sommare a 1.00**,
-ogni metrica richiede le soglie `G`, `Y`, `O` (numeriche ≥ 0); `nome` e
-`perche` sono opzionali (se mancano si usa la chiave / stringa vuota).
+Same format as the GET. The **weights must sum to 1.00**, every metric
+requires the `G`, `Y`, `O` thresholds (numeric ≥ 0); `name` and `why` are
+optional (key / empty string used if missing).
 
 ```bash
-curl -X POST https://esempio.it/api/config \
-  -H "Authorization: Bearer IL_TUO_TOKEN" \
+curl -X POST https://example.com/api/config \
+  -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "titolo": "Dashboard Produzione",
-    "sottotitolo": "aggiornato ogni giorno alle 20:00",
-    "metriche": {
-      "esempio_uno": { "nome": "Esempio uno", "perche": "perché conta", "G": 0, "Y": 3, "O": 6, "peso": 0.6 },
-      "esempio_due": { "nome": "Esempio due", "perche": "perché conta", "G": 0, "Y": 2, "O": 5, "peso": 0.4 }
+    "title": "Production Dashboard",
+    "subtitle": "updated daily at 20:00",
+    "metrics": {
+      "example_one": { "name": "Example one", "why": "why it matters", "G": 0, "Y": 3, "O": 6, "weight": 0.6 },
+      "example_two": { "name": "Example two", "why": "why it matters", "G": 0, "Y": 2, "O": 5, "weight": 0.4 }
     }
   }'
 ```
 
-Risposta: `200` `{"ok": true, "metriche": 2, "titolo": "Dashboard Produzione"}`.
-Rifare la POST **sostituisce** la configurazione (nessuna duplicazione).
+Response: `200` `{"ok": true, "metrics": 2, "title": "Production Dashboard"}`.
+Re-POSTing **replaces** the configuration (no duplication).
 
-### GET /api/config — recupero della configurazione
+### GET /api/config — reading the configuration
 
 ```bash
-curl -u utente:password https://esempio.it/api/config
+curl -u user:password https://example.com/api/config
 ```
 
-Restituisce la configurazione **attiva** (quella inviata con POST, o i
-default di `config.php` se non è mai stata inviata).
+Returns the **active** configuration (the one sent with POST, or the
+defaults from `config.php` if none has been sent yet).
 
-### POST /api/metriche — esempio
+### POST /api/metrics — example
 
 ```bash
-curl -X POST https://esempio.it/api/metriche \
-  -H "Authorization: Bearer IL_TUO_TOKEN" \
+curl -X POST https://example.com/api/metrics \
+  -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "data": "2026-08-24",
-    "metriche": {
-      "esempio_uno": 2,
-      "esempio_due": 1
+    "date": "2026-08-24",
+    "metrics": {
+      "example_one": 2,
+      "example_two": 1
     },
-    "indice": 0
+    "index": 0
   }'
 ```
 
-Le chiavi del payload `metriche` devono corrispondere a quelle della
-configurazione attiva (`GET /api/config`). Il campo `indice` è l'indice
-aggregato (opzionale: il server lo ricalcola comunque).
+The keys of the `metrics` payload must match those of the active
+configuration (`GET /api/config`). The `index` field is the aggregate index
+(optional: the server recomputes it anyway).
 
-## Guida all'uso per il cliente (collector)
+## Client usage guide (collector)
 
-Il **cliente** (il programma che raccoglie i dati) usa
-l'API in 5 passi. Tutti gli esempi usano:
+The **client** (the program that gathers the data) uses the API in 5 steps.
+All examples use:
 
 ```bash
-BASE=http://nuc.home.arpa:8888            # in produzione: https://tuodominio.it (o il tuo dominio)
-TOKEN='IL_TUO_TOKEN_BEARER'               # consegnato dall'operatore (API_TOKEN in config.php)
-USER='utente'; PASS='password'            # credenziali Basic Auth per le GET
+BASE=http://nuc.home.arpa:8888            # in production: https://your-domain.com
+TOKEN='YOUR_BEARER_TOKEN'                 # handed over by the operator (API_TOKEN in config.php)
+USER='user'; PASS='password'              # Basic Auth credentials for the GETs
 ```
 
-### 1) Inviare la configurazione (chiavi, pesi, range)
+### 1) Send the configuration (keys, weights, ranges)
 
-`POST /api/config` (Bearer token) definisce il **setup**: chiavi delle
-metriche, nomi, descrizioni, **pesi** e **range** (soglie G/Y/O). Si invia
-una sola volta (o quando cambiano le metriche); il backend la salva nel DB.
+`POST /api/config` (Bearer token) defines the **setup**: metric keys, names,
+descriptions, **weights** and **ranges** (G/Y/O thresholds). Send it once
+(or when the metrics change); the backend stores it in the DB.
 
 ```bash
 curl -X POST "$BASE/api/config" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "titolo": "Dashboard Produzione",
-    "metriche": {
-      "ordini": { "nome": "Ordini da evadere", "perche": "evadere in fretta", "G": 0, "Y": 2, "O": 5, "peso": 0.6 },
-      "email":  { "nome": "Email da smistare", "perche": "risposte rapide",   "G": 5, "Y": 15, "O": 30, "peso": 0.4 }
+    "title": "Production Dashboard",
+    "metrics": {
+      "orders": { "name": "Orders to fulfil", "why": "fast fulfilment keeps trust", "G": 0, "Y": 2, "O": 5, "weight": 0.6 },
+      "emails": { "name": "Emails to triage", "why": "quick replies improve trust", "G": 5, "Y": 15, "O": 30, "weight": 0.4 }
     }
   }'
 ```
 
-### 2) Recuperare la configurazione (cosa deve inviare)
+### 2) Read the configuration (what to send)
 
-`GET /api/config` (Basic Auth) restituisce la configurazione **attiva**:
-il cliente la legge per sapere **quali chiavi** usare nel POST e **come**
-verranno valutate.
+`GET /api/config` (Basic Auth) returns the **active** configuration: the
+client reads it to know **which keys** to use in the POST and **how** they
+will be evaluated.
 
 ```bash
 curl -u "$USER:$PASS" "$BASE/api/config"
 ```
 
-Significato dei campi di ogni metrica:
+Meaning of each metric field:
 
-| Campo | Cosa significa |
+| Field | Meaning |
 |---|---|
-| `nome` | Etichetta mostrata nella dashboard |
-| `perche` | Breve descrizione ("perché conta") mostrata sotto il nome |
-| `G`, `Y`, `O` | **Range** delle zone: verde `[0..G]`, gialla `[G+1..Y]`, arancione `[Y+1..O]`, rossa `[O+1..∞]` |
-| `peso` | **Peso** nella somma pesata (i pesi sommano a 1.00 = 100%) |
+| `name` | Label shown in the dashboard |
+| `why` | Short "why it matters" shown under the name |
+| `G`, `Y`, `O` | **Ranges** of the zones: green `[0..G]`, yellow `[G+1..Y]`, orange `[Y+1..O]`, red `[O+1..∞]` |
+| `weight` | **Weight** in the weighted sum (weights sum to 1.00 = 100%) |
 
-### 3) Inviare (o aggiornare) i valori del giorno
+### 3) Send (or update) the values of the day
 
-`POST /api/metriche` (Bearer token) salva uno snapshot giornaliero.
-Il payload contiene la data e **una chiave per ogni metrica** con il suo
-valore grezzo:
+`POST /api/metrics` (Bearer token) saves a daily snapshot. The payload
+contains the date and **one key for each metric** with its raw value:
 
 ```bash
-curl -X POST "$BASE/api/metriche" \
+curl -X POST "$BASE/api/metrics" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "data": "2026-08-24",
-    "metriche": {
-      "ordini": 2,
-      "email": 10
+    "date": "2026-08-24",
+    "metrics": {
+      "orders": 2,
+      "emails": 10
     },
-    "indice": 0
+    "index": 0
   }'
 ```
 
-Regole:
-- `data` è la data dello snapshot (`YYYY-MM-DD`).
-- Le chiavi in `metriche` **devono** essere esattamente quelle della
-  configurazione attiva: se manca una chiave o c'è una chiave sconosciuta → `400`.
-- I valori sono **numerici ≥ 0**.
-- Il campo `indice` è opzionale e viene ignorato: il server **ricalcola**
-  punteggi (0–100) e indice aggregato dalle soglie e dai pesi della
-  configurazione attiva.
-- Risposta di successo: `200` `{"ok": true, "data": "...", "indice": 55.8, "zona": "arancione"}`.
+Rules:
+- `date` is the snapshot date (`YYYY-MM-DD`).
+- The keys in `metrics` **must** be exactly those of the active
+  configuration: a missing key or an unknown key → `400`.
+- Values are **numeric ≥ 0**.
+- The `index` field is optional and ignored: the server **recomputes**
+  scores (0–100) and the aggregate index from the thresholds and weights of
+  the active configuration.
+- Success response: `200` `{"ok": true, "date": "...", "index": 55.8, "zone": "orange"}`.
 
-### 4) Aggiornare/correggere i valori di un giorno già inviato
+### 4) Update/correct the values of an already-sent day
 
-L'inserimento è **idempotente per data**: rifare la POST con la **stessa
-data** **sostituisce** lo snapshot (nessun duplicato, grazie al vincolo
-UNIQUE su `data` + chiave). È il modo per correggere un errore o per
-l'aggiornamento serale:
+The insert is **idempotent per date**: re-POSTing with the **same date**
+**replaces** the snapshot (no duplicate, thanks to the UNIQUE constraint on
+`date` + key). This is how you correct a mistake or do the evening update:
 
 ```bash
-# Errore di battitura: invio di nuovo la stessa data con il valore giusto
-curl -X POST "$BASE/api/metriche" \
+# Typo: re-POST the same date with the right value
+curl -X POST "$BASE/api/metrics" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"data":"2026-08-24","metriche":{"ordini":5,"email":10},"indice":0}'
+  -d '{"date":"2026-08-24","metrics":{"orders":5,"emails":10},"index":0}'
 ```
 
-Lo snapshot del 24 diventa quello nuovo (ordini = 5), non si aggiunge
-una seconda riga.
+The snapshot of the 24th becomes the new one (orders = 5), no second row is
+added.
 
-### 5) Recuperare i dati (per verificare o per il collector)
+### 5) Read the data (to verify or for the collector)
 
 ```bash
-# Ultimo snapshot (per i gauges)
-curl -u "$USER:$PASS" "$BASE/api/metriche/latest"
+# Latest snapshot (for the gauges)
+curl -u "$USER:$PASS" "$BASE/api/metrics/latest"
 
-# Storico — default ultimi 30 giorni
-curl -u "$USER:$PASS" "$BASE/api/metriche"
+# History — default last 30 days
+curl -u "$USER:$PASS" "$BASE/api/metrics"
 
-# Storico personalizzato
-curl -u "$USER:$PASS" "$BASE/api/metriche?da=2026-08-01&a=2026-08-24"
+# Custom history
+curl -u "$USER:$PASS" "$BASE/api/metrics?from=2026-08-01&to=2026-08-24"
 ```
 
-Ogni metrica restituita include `valore` (grezzo), `score` (0–100) e
-`zona` (verde/giallo/arancione/rosso), più l'`indice` aggregato e la sua zona.
+Every returned metric includes `value` (raw), `score` (0–100) and `zone`
+(green/yellow/orange/red), plus the aggregate `index` and its zone.
 
-### Riepilogo del flusso
+### Flow summary
 
 ```
-1. POST /api/config            -> invia la configurazione (chiavi, pesi, range)
-2. GET  /api/config            -> recupera la configurazione attiva
-3. POST /api/metriche          -> invia i valori del giorno (Bearer)
-4. POST /api/metriche (stessa data) -> aggiorna/corregge lo snapshot
-5. GET  /api/metriche/latest e /api/metriche -> recupera dati e verifica
+1. POST /api/config            -> send the configuration (keys, weights, ranges)
+2. GET  /api/config            -> read the active configuration
+3. POST /api/metrics           -> send the values of the day (Bearer)
+4. POST /api/metrics (same date) -> update/correct the snapshot
+5. GET  /api/metrics/latest and /api/metrics -> read data and verify
 ```
 
-## Compilare il frontend
+## Building the frontend
 
-Prerequisiti: **Node.js ≥ 18** e **npm** (la build è locale/CI, non sul server).
+Prerequisites: **Node.js ≥ 18** and **npm** (the build is local/CI, not on
+the server).
 
 ```bash
 cd frontend
-npm install        # o npm ci (riproduzione esatta dal lockfile)
-npm run build      # genera frontend/dist/ (HTML/CSS/JS minificati + .htaccess)
+npm install        # or npm ci (exact reproduction from the lockfile)
+npm run build      # generates frontend/dist/ (minified HTML/CSS/JS + .htaccess)
 ```
 
-Per lo sviluppo: `npm run dev` (server Vite con hot-reload su :5173) e
-`npm run preview` (serve il `dist/` su :4173). Dettagli, struttura del
-`dist/` e risoluzione problemi: vedi **`TECH.md` §8**.
+For development: `npm run dev` (Vite dev server with hot reload on :5173)
+and `npm run preview` (serves `dist/` on :4173). Details, `dist/` structure
+and troubleshooting: see **`TECH.md` §8**.
 
-## CI / Deploy automatico (GitHub Actions)
+## CI / Automatic deploy (GitHub Actions)
 
-Il repository include due workflow in `.github/workflows/`:
+The repository includes two workflows in `.github/workflows/`:
 
-- **`ci.yml`** — a ogni push/PR compila il frontend, verifica l'output e
-  carica `dist/` come **artifact** scaricabile (nessun deploy).
-- **`prod-deploy.yml`** — a ogni push su `main` (o manuale) compila e
-  **pubblica su FTP**: `dist/` in webroot + `api/` e `data/`. Esclude
-  `.htaccess` di root e `data/config.php` per non sovrascrivere la
-  configurazione di produzione.
+- **`ci.yml`** — on every push/PR it builds the frontend, verifies the
+  output and uploads `dist/` as a downloadable **artifact** (no deploy).
+- **`prod-deploy.yml`** — on every push to `main` (or manually) it builds
+  and **publishes via FTP**: `dist/` to the webroot + `api/` and `data/`.
+  It excludes the root `.htaccess` and `data/config.php` so the production
+  configuration is not overwritten.
 
-Per attivare il deploy FTP servono i **secrets** del repository
+To enable the FTP deploy you need repository **secrets**
 (Settings → Secrets and variables → Actions): `FTP_HOST`, `FTP_USERNAME`,
-`FTP_PASSWORD`, `FTP_DIR`. Dettagli: vedi **`TECH.md` §8.7**.
+`FTP_PASSWORD`, `FTP_DIR`. Details: see **`TECH.md` §8.7**.
 
-## Deploy su hosting condiviso (senza SSH)
+## Deploy on shared hosting (no SSH)
 
-1. **Build locale del frontend**: `cd frontend && npm install && npm run build`.
-2. **Carica via FTP / file manager**:
-   - il contenuto di `frontend/dist/` → webroot (o `/dashboard/`);
+1. **Build the frontend locally**: `cd frontend && npm install && npm run build`.
+2. **Upload via FTP / file manager**:
+   - the content of `frontend/dist/` → webroot (or `/dashboard/`);
    - `deploy/api/` → `/api/`;
-   - `deploy/data/` → fuori dalla webroot se possibile, altrimenti `/data/`
-     (protetta comunque dal suo `.htaccess`);
-   - `deploy/.htaccess` → webroot (un solo `.htaccess` di root: quello del
-     `dist/` e quello di `deploy/` sono identici, non caricarli entrambi).
-3. **Genera `.htpasswd`** (es. `htpasswd -c .htpasswd utente`) e aggiorna
-   `AuthUserFile` nel `.htaccess` di root con il percorso reale.
-4. **Imposta `API_TOKEN`** in `deploy/data/config.php` con una stringa casuale
-   lunga (`openssl rand -hex 32`) e consegnala al collector.
-5. **Personalizza il setup** — o inviando la configurazione con
-   `POST /api/config` (vedi "Guida all'uso"), oppure modificando i default
-   in `deploy/data/config.php` (`METRICHE`, titolo) — il frontend si adatta
-   da solo.
+   - `deploy/data/` → outside the webroot if possible, otherwise `/data/`
+     (still protected by its `.htaccess`);
+   - `deploy/.htaccess` → webroot (a single root `.htaccess`: the one in
+     `dist/` and the one in `deploy/` are identical, do not upload both).
+3. **Generate `.htpasswd`** (e.g. `htpasswd -c .htpasswd user`) and update
+   `AuthUserFile` in the root `.htaccess` with the real path.
+4. **Set `API_TOKEN`** in `deploy/data/config.php` with a long random string
+   (`openssl rand -hex 32`) and hand it to the collector.
+5. **Customize the setup** — either by sending the configuration with
+   `POST /api/config` (see "Client usage guide"), or by editing the
+   defaults in `deploy/data/config.php` (`METRICS`, title) — the frontend
+   adapts by itself.
 6. **Smoke test**:
 
 ```bash
 # Setup (Basic Auth)
-curl -u utente:password https://esempio.it/api/config
+curl -u user:password https://example.com/api/config
 
-# GET protetta (Basic Auth)
-curl -u utente:password https://esempio.it/api/metriche/latest
+# Protected GET (Basic Auth)
+curl -u user:password https://example.com/api/metrics/latest
 
-# POST di prova (Bearer)
-curl -X POST https://esempio.it/api/metriche \
-  -H "Authorization: Bearer IL_TUO_TOKEN" -H "Content-Type: application/json" \
-  -d '{"data":"2026-08-25","metriche":{...},"indice":0}'
+# Test POST (Bearer)
+curl -X POST https://example.com/api/metrics \
+  -H "Authorization: Bearer YOUR_TOKEN" -H "Content-Type: application/json" \
+  -d '{"date":"2026-08-25","metrics":{...},"index":0}'
 ```
 
-**Nota sulla Basic Auth e la POST**: il `.htaccess` di root protegge dashboard
-e GET ma **esenta le POST** (`<RequireAny> … <Require method POST>`). Se il
-collettore non riuscisse a fare POST (Apache 2.2), sposta il `.htaccess` di
-root in una sottocartella che contiene solo il dashboard e imposta
-`BASIC_AUTH_USER`/`BASIC_AUTH_PASS` in `config.php` (la GET dell'API verrà
-protetta dal PHP stesso).
+**Note on Basic Auth and POST**: the root `.htaccess` protects the dashboard
+and the GETs but **exempts POSTs** (`<RequireAny> … <Require method POST>`).
+If the collector cannot POST (Apache 2.2), move the root `.htaccess` into a
+subfolder that contains only the dashboard and set
+`BASIC_AUTH_USER`/`BASIC_AUTH_PASS` in `config.php` (the API GETs will then
+be protected by PHP itself).
 
-## Note sulla formula
+## Formula notes
 
-- Punteggio per metrica: interpolazione lineare a tratti su bande
-  `verde [0,G]→[0,25]`, `gialla [G+1,Y]→[26,50]`, `arancio [Y+1,O]→[51,75]`,
-  `rossa [O+1, 2·(O+1)]→[76,100]`; saturazione a `2·(O+1)` = 100.
-- Indice aggregato = Σ punteggio × peso (pesi = 100%).
-- Il backend (`score_metric` in PHP) calcola punteggi e indice; il frontend
-  usa direttamente i valori restituiti dall'API (score e zona per il gauge,
-  valore grezzo al centro).
+- Score per metric: piecewise linear interpolation on bands
+  `green [0,G]→[0,25]`, `yellow [G+1,Y]→[26,50]`, `orange [Y+1,O]→[51,75]`,
+  `red [O+1, 2·(O+1)]→[76,100]`; saturation at `2·(O+1)` = 100.
+- Aggregate index = Σ score × weight (weights = 100%).
+- The backend (`score_metric` in PHP) computes scores and the index; the
+  frontend uses directly the values returned by the API (score and zone for
+  the gauge, raw value at the center).
 
-## Struttura
+## Structure
 
 ```
+├── .github/workflows/ci.yml
 ├── .github/workflows/prod-deploy.yml
 ├── README.md
+├── TECH.md
 ├── deploy/
 │   ├── .htaccess
-│   ├── api/{.htaccess, metriche.php}
+│   ├── api/{.htaccess, metrics.php}
 │   └── data/{.htaccess, config.php}
 └── frontend/
     ├── package.json

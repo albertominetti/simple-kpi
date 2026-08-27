@@ -1,5 +1,5 @@
-# Protezione totale della cartella data/ (config.php + kpi.sqlite).
-# Compatibile con Apache 2.4 e 2.2.
+# Total protection of the data/ folder (config.php + kpi.sqlite).
+# Compatible with Apache 2.4 and 2.2.
 
 <IfModule mod_authz_core.c>
     # Apache 2.4
@@ -12,8 +12,8 @@
     Deny from all
 </IfModule>
 
-# Blocco esplicito di qualsiasi esecuzione PHP / download diretto
-# dei file di dati (utile anche se la cartella finisse dentro la webroot).
+# Explicit block of any PHP execution / direct download of data files
+# (useful even if the folder ends up inside the webroot).
 <FilesMatch "\.(php|sqlite|sqlite3|db|txt|log)$">
     <IfModule mod_authz_core.c>
         Require all denied

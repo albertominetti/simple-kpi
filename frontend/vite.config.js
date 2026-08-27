@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 
-// base: './' -> asset relativi, così il dist/ funziona anche in una
-// sottocartella (es. /dashboard/) oltre che nella webroot.
+// base: './' -> relative assets, so dist/ works both in the webroot
+// and in a subfolder (e.g. /dashboard/).
 export default defineConfig({
   plugins: [vue()],
   base: './',

@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Dashboard KPI generica (Vue 3 + Vite + Chart.js) - setup e dati dal backend",
+  "description": "Generic KPI dashboard (Vue 3 + Vite + Chart.js) - setup and data from the backend",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

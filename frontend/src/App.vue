@@ -2,41 +2,41 @@
   <div class="app">
     <header class="header">
       <div>
-        <h1>{{ config.titolo || 'Dashboard KPI' }}</h1>
-        <p v-if="config.sottotitolo" class="sottotitolo">{{ config.sottotitolo }}</p>
+        <h1>{{ config.title || 'Dashboard KPI' }}</h1>
+        <p v-if="config.subtitle" class="subtitle">{{ config.subtitle }}</p>
       </div>
-      <button class="btn" :disabled="caricamento" @click="ricarica">
-        {{ caricamento ? 'Aggiornamento…' : '⟳ Aggiorna' }}
+      <button class="btn" :disabled="loading" @click="reload">
+        {{ loading ? 'Loading…' : '⟳ Refresh' }}
       </button>
     </header>
 
-    <p v-if="errore" class="errore">{{ errore }}</p>
+    <p v-if="error" class="error">{{ error }}</p>
 
-    <!-- Riga superiore: gauge principale a sinistra, mini-gauge a destra -->
-    <div class="corpo">
-      <section class="sezione-principale">
+    <!-- Top row: main gauge on the left, mini-gauges on the right -->
+    <div class="body">
+      <section class="main-section">
         <MetricGauge
-          v-if="ultimo"
-          :valore="ultimo.indice"
-          :zona="ultimo.zona"
-          :etichetta="'Snapshot del ' + ultimo.data"
+          v-if="latest"
+          :value="latest.index"
+          :zone="latest.zone"
+          :label="'Snapshot of ' + latest.date"
         />
-        <div v-else-if="!caricamento" class="vuoto">
-          Nessun dato disponibile: attendi la prima POST del collector.
+        <div v-else-if="!loading" class="empty">
+          No data available: wait for the first POST from the collector.
         </div>
       </section>
 
       <DashboardGrid
-        v-if="ultimo && ultimo.metriche && config.metriche"
+        v-if="latest && latest.metrics && config.metrics"
         :config="config"
-        :metriche="ultimo.metriche"
+        :metrics="latest.metrics"
       />
-      <div v-else-if="!caricamento" class="vuoto">
-        Nessun dato disponibile: attendi la prima POST del collector.
+      <div v-else-if="!loading" class="empty">
+        No data available: wait for the first POST from the collector.
       </div>
     </div>
 
-    <!-- Andamento sotto, tutta larghezza -->
+    <!-- Trend below, full width -->
     <HistoryChart />
   </div>
 </template>
@@ -46,26 +46,26 @@ import { onMounted, ref } from 'vue';
 import MetricGauge from './components/MetricGauge.vue';
 import DashboardGrid from './components/DashboardGrid.vue';
 import HistoryChart from './components/HistoryChart.vue';
-import { fetchConfig, fetchUltimo } from './api.js';
+import { fetchConfig, fetchLatest } from './api.js';
 
-const config = ref({ titolo: 'Dashboard KPI', sottotitolo: '', metriche: {} });
-const ultimo = ref(null);
-const caricamento = ref(false);
-const errore = ref('');
+const config = ref({ title: 'Dashboard KPI', subtitle: '', metrics: {} });
+const latest = ref(null);
+const loading = ref(false);
+const error = ref('');
 
-async function ricarica() {
-  caricamento.value = true;
-  errore.value = '';
+async function reload() {
+  loading.value = true;
+  error.value = '';
   try {
-    const [cfg, dati] = await Promise.all([fetchConfig(), fetchUltimo()]);
+    const [cfg, data] = await Promise.all([fetchConfig(), fetchLatest()]);
     config.value = cfg;
-    ultimo.value = dati;
+    latest.value = data;
   } catch (e) {
-    errore.value = `Impossibile caricare i dati: ${e.message}`;
+    error.value = `Unable to load data: ${e.message}`;
   } finally {
-    caricamento.value = false;
+    loading.value = false;
   }
 }
 
-onMounted(ricarica);
+onMounted(reload);
 </script>

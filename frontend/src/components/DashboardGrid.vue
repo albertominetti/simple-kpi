@@ -1,35 +1,35 @@
 <template>
-  <section class="griglia">
-    <h2>Metriche</h2>
-    <div class="griglia-card">
-      <article v-for="(def, key) in config.metriche" :key="key" class="card">
+  <section class="grid">
+    <h2>Metrics</h2>
+    <div class="grid-cards">
+      <article v-for="(def, key) in config.metrics" :key="key" class="card">
         <MetricGauge
-          :valore="dato(key).score"
-          :zona="dato(key).zona"
-          :testo="formatoNumero(dato(key).valore)"
+          :value="metric(key).score"
+          :zone="metric(key).zone"
+          :text="formatNumber(metric(key).value)"
         />
-        <h3>{{ def.nome }}</h3>
-        <p v-if="def.perche" class="perche">{{ def.perche }}</p>
+        <h3>{{ def.name }}</h3>
+        <p v-if="def.why" class="why">{{ def.why }}</p>
       </article>
     </div>
   </section>
 </template>
 
 <script setup>
-import { formatoNumero } from '../metrics.js';
+import { formatNumber } from '../metrics.js';
 import MetricGauge from './MetricGauge.vue';
 
 const props = defineProps({
-  config: { type: Object, required: true },   // setup dal backend (metriche con nome/perche/…)
-  metriche: { type: Object, required: true }, // dati puntuali: key -> {valore, score, zona}
+  config: { type: Object, required: true },   // setup from the backend (metrics with name/why/…)
+  metrics: { type: Object, required: true },  // point data: key -> {value, score, zone}
 });
 
-function dato(key) {
-  const d = props.metriche[key];
+function metric(key) {
+  const d = props.metrics[key];
   return {
-    valore: d ? d.valore : 0,
+    value: d ? d.value : 0,
     score: d ? d.score : 0,
-    zona: d ? d.zona : 'verde',
+    zone: d ? d.zone : 'green',
   };
 }
 </script>

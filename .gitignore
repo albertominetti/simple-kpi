@@ -1,4 +1,4 @@
-# Strumentazione interna (storico agent)
+# Internal tooling (agent history)
 .janito/
 
 # Node / Vite
@@ -11,7 +11,7 @@ frontend/dist/
 .idea/
 .vscode/
 
-# Dati locali (mai versionare chiavi/db)
+# Local data (never version keys/db)
 deploy/data/kpi.sqlite
 deploy/data/kpi.sqlite-*
 deploy/data/config.local.php

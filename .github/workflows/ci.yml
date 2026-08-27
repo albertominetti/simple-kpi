@@ -1,7 +1,7 @@
 name: CI - Build frontend
 
-# Esegue la compilazione del frontend a ogni push/PR e carica il dist/
-# come artifact scaricabile. Non fa deploy (vedi prod-deploy.yml).
+# Builds the frontend on every push/PR and uploads dist/ as a downloadable
+# artifact. Does NOT deploy (see prod-deploy.yml).
 
 on:
   push:
@@ -28,13 +28,13 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install dipendenze (lockfile)
+      - name: Install dependencies (lockfile)
         run: npm ci
 
-      - name: Build produzione
+      - name: Production build
         run: npm run build
 
-      - name: Verifica output
+      - name: Verify output
         run: |
           test -f dist/index.html
           test -f dist/.htaccess
@@ -43,7 +43,7 @@ jobs:
           echo "Build OK:"
           ls -la dist dist/assets
 
-      # Carica dist/ come artifact scaricabile dalla run.
+      # Uploads dist/ as a downloadable artifact from the run.
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

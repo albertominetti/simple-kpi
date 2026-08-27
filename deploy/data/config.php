@@ -1,49 +1,61 @@
 <?php
 /**
- * KPI Dashboard — configurazione backend.
+ * KPI Dashboard — backend configuration.
  *
- * Questo file vive FUORI dalla webroot (o comunque in una cartella protetta
- * da deploy/data/.htaccess con "Require all denied"). Non deve MAI essere
- * servito direttamente dal web server.
+ * This file lives OUTSIDE the webroot (or in a protected folder via
+ * deploy/data/.htaccess with "Require all denied"). It must NEVER be served
+ * directly by the web server.
  *
- * Questo file è l'UNICA fonte di verità del setup: il frontend è generico e
- * riceve tutto via GET /api/config (chiavi, nomi, descrizioni, pesi, range)
- * e i dati puntuali via GET /api/metriche*.
+ * This file provides the DEFAULT metrics setup (const METRICS). The client
+ * can override it at runtime by sending POST /api/config; the active
+ * configuration is then stored in the DB and exposed via GET /api/config.
  *
- * Istruzioni di deploy:
- *  1. Sostituisci API_TOKEN con una stringa casuale lunga (es. generata con
- *     `openssl rand -hex 32`). Consegnare lo stesso token al collector.
- *  2. (Opzionale) Imposta BASIC_AUTH_USER / BASIC_AUTH_PASS se vuoi che anche
- *     il PHP verifichi la Basic Auth in aggiunta al .htaccess del dashboard.
- *     Se li lasci vuoti, l'autenticazione GET resta gestita dal solo .htaccess.
- *  3. Adatta METRICHE al tuo contesto: ogni voce definisce chiave, nome,
- *     descrizione ("perche"), soglie G/Y/O e peso. I pesi devono sommare a 1.
+ * Deployment instructions:
+ *  1. Replace API_TOKEN with a long random string (e.g. generated with
+ *     `openssl rand -hex 32`). Give the same token to the collector.
+ *  2. (Optional) Set BASIC_AUTH_USER / BASIC_AUTH_PASS if you want PHP to
+ *     also verify Basic Auth in addition to the dashboard .htaccess.
+ *     Leave them empty to rely on the .htaccess for GET authentication.
+ *  3. Adapt METRICS to your context: each entry defines the key, name,
+ *     description ("why"), G/Y/O thresholds and weight. Weights must sum
+ *     to 1.
  */
 
 const API_TOKEN = 'CHANGE_ME_long_random_string_use_openssl_rand_hex_32';
 const DB_PATH   = __DIR__ . '/kpi.sqlite';
 
-// Autenticazione Basic opzionale (difesa in profondità per le GET).
-// Lasciare vuoto per affidarsi al .htaccess del dashboard.
+// Optional Basic Auth (defence in depth for the GETs).
+// Leave empty to rely on the dashboard .htaccess.
 const BASIC_AUTH_USER = '';
 const BASIC_AUTH_PASS = '';
 
-// Titolo/sottotitolo mostrati dal frontend (nessun riferimento aziendale).
-const DASHBOARD_TITOLO      = 'Dashboard KPI';
-const DASHBOARD_SOTTOTITOLO = 'aggiornamento giornaliero alle 20:00';
+// Title/subtitle shown by the frontend (no company references).
+const DASHBOARD_TITLE    = 'Dashboard KPI';
+const DASHBOARD_SUBTITLE = 'updated daily at 20:00';
 
 /**
- * Setup delle metriche (inviato al frontend via GET /api/config).
+ * Default metrics setup (sent to the frontend via GET /api/config).
  *
- * Chiave => [
- *   'nome'   => nome descrittivo mostrato nella UI,
- *   'perche' => breve "perché conta" mostrato nella UI,
- *   'G'/'Y'/'O' => soglie delle zone (verde/giallo/arancio),
- *   'peso'   => peso nella somma pesata (totale = 1.00),
+ * Key => [
+ *   'name'   => display name shown in the UI,
+ *   'why'    => short "why it matters" shown in the UI,
+ *   'G'/'Y'/'O' => zone thresholds (green/yellow/orange),
+ *   'weight' => weight in the weighted sum (total = 1.00),
  * ]
  */
-const METRICHE = [
-    'esempio_uno' => ['nome' => 'Esempio uno', 'perche' => 'perché conta',  'G' => 0, 'Y' => 3, 'O' => 6, 'peso' => 0.6],
-    'esempio_due' => ['nome' => 'Esempio due', 'perche' => 'perché conta',  'G' => 0, 'Y' => 2, 'O' => 5, 'peso' => 0.4],
+const METRICS = [
+    'quotes_to_prepare'          => ['name' => 'Quotes to prepare',               'why' => 'quick replies generate more orders',         'G' => 0,    'Y' => 3,     'O' => 6,     'weight' => 0.15],
+    'orders_to_fulfil'           => ['name' => 'Orders to fulfil',                'why' => 'fast fulfilment keeps trust',                'G' => 0,    'Y' => 2,     'O' => 5,     'weight' => 0.12],
+    'emails_to_triage'           => ['name' => 'Emails to triage',                'why' => 'quick replies improve trust',                'G' => 5,    'Y' => 15,    'O' => 30,    'weight' => 0.12],
+    'overdue_invoices'           => ['name' => 'Overdue invoices (over 2 months)','why' => 'slow payments, tolerated up to 2 months',    'G' => 0,    'Y' => 2,     'O' => 5,     'weight' => 0.06],
+    'overdue_invoices_amount'    => ['name' => 'Overdue invoices amount',         'why' => 'the higher the amount, the more it weighs',   'G' => 0,    'Y' => 1000,  'O' => 5000,  'weight' => 0.06],
+    'delivery_notes_to_invoice'  => ['name' => 'Delivery notes to invoice',       'why' => 'to be invoiced by the 10th of next month',    'G' => 0,    'Y' => 2,     'O' => 5,     'weight' => 0.08],
+    'upcoming_deadlines'         => ['name' => 'Upcoming deadlines (7 days)',     'why' => 'planning ahead avoids surprises',             'G' => 2,    'Y' => 5,     'O' => 10,    'weight' => 0.08],
+    'purchase_quotes_to_review'  => ['name' => 'Purchase quotes to review',       'why' => 'closing quickly unlocks supplies',            'G' => 0,    'Y' => 2,     'O' => 5,     'weight' => 0.06],
+    'digital_work_in_progress'   => ['name' => 'Digital work in progress',        'why' => 'active projects to complete',                'G' => 0,    'Y' => 2,     'O' => 5,     'weight' => 0.05],
+    'marketing_tasks_to_do'      => ['name' => 'Marketing tasks to do',           'why' => 'constant communication = visibility',         'G' => 0,    'Y' => 3,     'O' => 7,     'weight' => 0.05],
+    'office_tasks_to_do'         => ['name' => 'Office tasks to do',              'why' => 'administrative backlog to clear',             'G' => 0,    'Y' => 2,     'O' => 5,     'weight' => 0.05],
+    'open_management_issues'     => ['name' => 'Open management issues',          'why' => 'pending decisions to close',                 'G' => 0,    'Y' => 2,     'O' => 5,     'weight' => 0.06],
+    'machinery_to_fix'           => ['name' => 'Machinery to fix',                'why' => 'machine downtime = production at risk',      'G' => 0,    'Y' => 1,     'O' => 3,     'weight' => 0.06],
 ];
-/* Le somme dei pesi danno esattamente 1.00 (100%). */
+/* The weights sum to exactly 1.00 (100%). */

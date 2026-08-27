@@ -1,23 +1,23 @@
 # ---------------------------------------------------------------------------
-# Basic Auth per il dashboard (e per le GET dell'API).
+# Basic Auth for the dashboard (and for the API GETs).
 #
-# ATTENZIONE (importante):
-#   La POST /api/metriche usa il Bearer token del collector e NON deve
-#   richiedere la Basic Auth. Con Apache 2.4 questo .htaccess protegge tutto
-#   tranne le richieste POST (vedi <RequireAny> qui sotto).
+# WARNING (important):
+#   POST /api/metrics uses the collector's Bearer token and must NOT require
+#   Basic Auth. With Apache 2.4 this .htaccess protects everything except
+#   POST requests (see <RequireAny> below).
 #
-#   Se il hosting usa Apache 2.2 o se il collector non riesce a fare POST,
-#   sposta questo file in una sottocartella che contiene SOLO il dashboard
-#   (es. /dashboard/.htaccess) e lascia /api/ senza Basic Auth: la GET
-#   dell'API verrà allora protetta dal controllo BASIC_AUTH in config.php.
+#   If the host uses Apache 2.2 or the collector cannot POST, move this file
+#   into a subfolder that contains ONLY the dashboard (e.g. /dashboard/.htaccess)
+#   and leave /api/ without Basic Auth: the API GETs will then be protected
+#   by the BASIC_AUTH check in config.php.
 # ---------------------------------------------------------------------------
 
 AuthType Basic
 AuthName "KPI Dashboard"
-AuthUserFile /percorso/sul/server/.htpasswd
+AuthUserFile /path/on/server/.htpasswd
 Require valid-user
 
-# Apache 2.4: consente le richieste POST senza Basic Auth (Bearer token).
+# Apache 2.4: allows POST requests without Basic Auth (Bearer token).
 <IfModule mod_authz_core.c>
     <RequireAny>
         Require valid-user
@@ -25,6 +25,6 @@ Require valid-user
     </RequireAny>
 </IfModule>
 
-# Fallback Apache 2.2: se non supporta "RequireAny", la POST richiederebbe
-# anch'essa la Basic Auth. In quel caso spostare questo file in una
-# sottocartella come spiegato sopra.
+# Apache 2.2 fallback: if it does not support "RequireAny", POST would also
+# require Basic Auth. In that case move this file into a subfolder as
+# explained above.

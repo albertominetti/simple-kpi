@@ -1,18 +1,18 @@
 <?php
 /**
- * Router per il PHP built-in server (solo sviluppo/test locale).
+ * Router for the PHP built-in server (local development/testing only).
  *
- * Serve su una SINGOLA origin, come in produzione:
- *   - /api/config           -> api/metriche.php   (POST invia/aggiorna setup, GET recupera setup)
- *   - /api/metriche*        -> api/metriche.php   (backend, POST/GET)
- *   - tutto il resto        -> frontend/dist/     (build Vite del dashboard)
+ * Serves everything from a SINGLE origin, like production:
+ *   - /api/config           -> api/metrics.php   (POST save/update setup, GET read setup)
+ *   - /api/metrics*         -> api/metrics.php   (backend, POST/GET)
+ *   - everything else       -> frontend/dist/    (Vite build of the dashboard)
  *
- * Uso:
+ * Usage:
  *   php -S 0.0.0.0:8888 -t deploy deploy/router.php
  *
- * NOTA: il built-in server NON processa i .htaccess (niente mod_rewrite né
- * Basic Auth): in locale le GET risultano aperte. In produzione su Apache
- * valgono i .htaccess di deploy/ (rewrite + Basic Auth + deny su data/).
+ * NOTE: the built-in server does NOT process .htaccess files (no mod_rewrite
+ * nor Basic Auth): locally the GETs are open. In production on Apache the
+ * deploy/ .htaccess files apply (rewrite + Basic Auth + deny on data/).
  */
 
 $uri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
@@ -22,33 +22,33 @@ if ($norm === '') {
     $norm = '/';
 }
 
-// Protezione: mai servire data/ (config.php, kpi.sqlite) né percorsi "nascosti"
+// Protection: never serve data/ (config.php, kpi.sqlite) nor "hidden" paths
 if ($norm === '/data' || strpos($norm, '/data/') === 0 || strpos($norm, '/.') !== false || strpos($norm, '..') !== false) {
     http_response_code(404);
     exit('Not found');
 }
 
 /* ------------------------------------------------------------------ *
- *  1) API: /api/metriche, /api/metriche/latest, /api/config
+ *  1) API: /api/metrics, /api/metrics/latest, /api/config
  * ------------------------------------------------------------------ */
-if (preg_match('#^/api/(metriche(/latest)?|config)$#', $norm, $m)) {
+if (preg_match('#^/api/(metrics(/latest)?|config)$#', $norm, $m)) {
     if ($m[1] === 'config') {
         $_SERVER['REQUEST_URI'] = '/api/config';
     } else {
-        $_SERVER['REQUEST_URI'] = !empty($m[2]) ? '/api/metriche/latest' : '/api/metriche';
+        $_SERVER['REQUEST_URI'] = !empty($m[2]) ? '/api/metrics/latest' : '/api/metrics';
     }
-    require __DIR__ . '/api/metriche.php';
+    require __DIR__ . '/api/metrics.php';
     return true;
 }
 
 /* ------------------------------------------------------------------ *
- *  2) Frontend: build Vite (frontend/dist/)
+ *  2) Frontend: Vite build (frontend/dist/)
  * ------------------------------------------------------------------ */
 $dist = dirname(__DIR__) . '/frontend/dist';
 $file = $dist . ($norm === '/' ? '/index.html' : $norm);
 
 if (!is_file($file) || !is_readable($file)) {
-    // fallback SPA -> index.html
+    // SPA fallback -> index.html
     $file = $dist . '/index.html';
 }
 

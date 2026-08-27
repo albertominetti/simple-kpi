@@ -1,18 +1,18 @@
-name: Deploy produzione (FTP)
+name: Deploy production (FTP)
 
-# Compila il frontend e pubblica su FTP:
-#   - frontend/dist/  -> webroot (o /dashboard/)
-#   - deploy/         -> api/ e data/ (config.php escluso)
+# Builds the frontend and publishes via FTP:
+#   - frontend/dist/  -> webroot (or /dashboard/)
+#   - deploy/         -> api/ and data/ (config.php excluded)
 #
-# Parte su push al ramo main oppure manualmente (workflow_dispatch).
-# Secrets richiesti: FTP_HOST, FTP_USERNAME, FTP_PASSWORD, FTP_DIR.
+# Runs on push to main or manually (workflow_dispatch).
+# Required secrets: FTP_HOST, FTP_USERNAME, FTP_PASSWORD, FTP_DIR.
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
-# Una sola deploy alla volta; le nuove run cancellano quelle in coda.
+# Only one deploy at a time; new runs cancel queued ones.
 concurrency:
   group: deploy-produzione
   cancel-in-progress: true
@@ -33,13 +33,13 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install e build frontend
+      - name: Install and build frontend
         working-directory: frontend
         run: |
           npm ci
           npm run build
 
-      # Pubblica la build del frontend nella webroot.
+      # Publishes the frontend build to the webroot.
       - name: Deploy frontend (dist/) via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
@@ -49,9 +49,10 @@ jobs:
           local-dir: ./frontend/dist/
           server-dir: ${{ secrets.FTP_DIR }}
 
-      # Pubblica backend (api/ e data/). NOTA: config.php è escluso per non
-      # sovrascrivere token/credenziali/setup già presenti in produzione.
-      - name: Deploy backend (api/ e data/) via FTP
+      # Publishes backend (api/ and data/). NOTE: config.php is excluded so
+      # that token/credentials/setup already present in production are not
+      # overwritten.
+      - name: Deploy backend (api/ and data/) via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_HOST }}
@@ -63,7 +64,7 @@ jobs:
             ./.htaccess
             ./data/config.php
 
-      # Carica il dist/ come artifact di backup della run.
+      # Uploads dist/ as a backup artifact of the run.
       - name: Upload artifact (dist/)
         if: always()
         uses: actions/upload-artifact@v4
