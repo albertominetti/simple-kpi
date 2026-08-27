@@ -1,0 +1,15 @@
+# Riscritture per l'API metriche.
+#   /api/config          -> metriche.php  (POST invia/aggiorna setup, GET recupera setup)
+#   /api/metriche        -> metriche.php  (POST snapshot, GET storico)
+#   /api/metriche/latest -> metriche.php  (GET ultimo snapshot)
+# Il file PHP parsa $_SERVER['REQUEST_URI'] per distinguere gli endpoint.
+
+RewriteEngine On
+RewriteRule ^config$ metriche.php [L,QSA]
+RewriteRule ^metriche$ metriche.php [L,QSA]
+RewriteRule ^metriche/latest$ metriche.php [L,QSA]
+
+# Rende disponibile l'header Authorization a PHP (indispensabile su molti
+# hosting condivisi Apache + CGI/FastCGI, altrimenti il Bearer token del
+# collector non arriva a $_SERVER['HTTP_AUTHORIZATION']).
+SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1

@@ -1,0 +1,74 @@
+name: Deploy produzione (FTP)
+
+# Compila il frontend e pubblica su FTP:
+#   - frontend/dist/  -> webroot (o /dashboard/)
+#   - deploy/         -> api/ e data/ (config.php escluso)
+#
+# Parte su push al ramo main oppure manualmente (workflow_dispatch).
+# Secrets richiesti: FTP_HOST, FTP_USERNAME, FTP_PASSWORD, FTP_DIR.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Una sola deploy alla volta; le nuove run cancellano quelle in coda.
+concurrency:
+  group: deploy-produzione
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install e build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      # Pubblica la build del frontend nella webroot.
+      - name: Deploy frontend (dist/) via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./frontend/dist/
+          server-dir: ${{ secrets.FTP_DIR }}
+
+      # Pubblica backend (api/ e data/). NOTA: config.php è escluso per non
+      # sovrascrivere token/credenziali/setup già presenti in produzione.
+      - name: Deploy backend (api/ e data/) via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./deploy/
+          server-dir: ${{ secrets.FTP_DIR }}
+          exclude: |
+            ./.htaccess
+            ./data/config.php
+
+      # Carica il dist/ come artifact di backup della run.
+      - name: Upload artifact (dist/)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kpi-dashboard-dist
+          path: frontend/dist
+          if-no-files-found: warn
+          retention-days: 7

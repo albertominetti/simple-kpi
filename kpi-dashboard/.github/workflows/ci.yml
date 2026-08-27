@@ -1,0 +1,53 @@
+name: CI - Build frontend
+
+# Esegue la compilazione del frontend a ogni push/PR e carica il dist/
+# come artifact scaricabile. Non fa deploy (vedi prod-deploy.yml).
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dipendenze (lockfile)
+        run: npm ci
+
+      - name: Build produzione
+        run: npm run build
+
+      - name: Verifica output
+        run: |
+          test -f dist/index.html
+          test -f dist/.htaccess
+          test -n "$(ls dist/assets/index-*.js 2>/dev/null)"
+          test -n "$(ls dist/assets/index-*.css 2>/dev/null)"
+          echo "Build OK:"
+          ls -la dist dist/assets
+
+      # Carica dist/ come artifact scaricabile dalla run.
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kpi-dashboard-dist
+          path: frontend/dist
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,4 @@
+# Strumentazione interna (storico agent)
+.janito/
+
+# (il resto è coperto da kpi-dashboard/.gitignore)

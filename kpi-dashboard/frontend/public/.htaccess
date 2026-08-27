@@ -1,0 +1,19 @@
+# Basic Auth per il dashboard (e per le GET dell'API).
+# Viene copiato in dist/ da Vite: caricalo nella webroot insieme al dist/.
+#
+# La POST /api/metriche usa il Bearer token e NON deve richiedere la Basic
+# Auth: con Apache 2.4 <RequireAny> + "Require method POST" la esentiamo.
+# Su Apache 2.2 spostare questo file in una sottocartella che contiene solo
+# il dashboard (la GET dell'API sarà protetta da BASIC_AUTH in config.php).
+
+AuthType Basic
+AuthName "KPI Dashboard"
+AuthUserFile /percorso/sul/server/.htpasswd
+Require valid-user
+
+<IfModule mod_authz_core.c>
+    <RequireAny>
+        Require valid-user
+        Require method POST
+    </RequireAny>
+</IfModule>

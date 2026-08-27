@@ -1,0 +1,20 @@
+{
+  "name": "kpi-dashboard-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Dashboard KPI generica (Vue 3 + Vite + Chart.js) - setup e dati dal backend",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "chart.js": "^4.4.7",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "vite": "^6.0.7"
+  }
+}

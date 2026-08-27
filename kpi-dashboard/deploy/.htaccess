@@ -1,0 +1,30 @@
+# ---------------------------------------------------------------------------
+# Basic Auth per il dashboard (e per le GET dell'API).
+#
+# ATTENZIONE (importante):
+#   La POST /api/metriche usa il Bearer token del collector e NON deve
+#   richiedere la Basic Auth. Con Apache 2.4 questo .htaccess protegge tutto
+#   tranne le richieste POST (vedi <RequireAny> qui sotto).
+#
+#   Se il hosting usa Apache 2.2 o se il collector non riesce a fare POST,
+#   sposta questo file in una sottocartella che contiene SOLO il dashboard
+#   (es. /dashboard/.htaccess) e lascia /api/ senza Basic Auth: la GET
+#   dell'API verrà allora protetta dal controllo BASIC_AUTH in config.php.
+# ---------------------------------------------------------------------------
+
+AuthType Basic
+AuthName "KPI Dashboard"
+AuthUserFile /percorso/sul/server/.htpasswd
+Require valid-user
+
+# Apache 2.4: consente le richieste POST senza Basic Auth (Bearer token).
+<IfModule mod_authz_core.c>
+    <RequireAny>
+        Require valid-user
+        Require method POST
+    </RequireAny>
+</IfModule>
+
+# Fallback Apache 2.2: se non supporta "RequireAny", la POST richiederebbe
+# anch'essa la Basic Auth. In quel caso spostare questo file in una
+# sottocartella come spiegato sopra.
