@@ -416,7 +416,6 @@ sul file remoto o via `POST /api/config`.
 ## 9. Dipendenze e file
 
 ```
-kpi-dashboard/
 ├── .github/workflows/
 │   ├── ci.yml                       # CI: build + artifact (push/PR)
 │   └── prod-deploy.yml              # CI: build + FTP (main/manuale)

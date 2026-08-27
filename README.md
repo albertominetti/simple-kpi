@@ -319,7 +319,6 @@ protetta dal PHP stesso).
 ## Struttura
 
 ```
-kpi-dashboard/
 ├── .github/workflows/prod-deploy.yml
 ├── README.md
 ├── deploy/

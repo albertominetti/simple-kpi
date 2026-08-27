@@ -1,4 +1,18 @@
 # Strumentazione interna (storico agent)
 .janito/
 
-# (il resto è coperto da kpi-dashboard/.gitignore)
+# Node / Vite
+node_modules/
+frontend/dist/
+
+# Editor / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Dati locali (mai versionare chiavi/db)
+deploy/data/kpi.sqlite
+deploy/data/kpi.sqlite-*
+deploy/data/config.local.php
+.htpasswd
