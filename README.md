@@ -486,4 +486,4 @@ only the dashboard and set `BASIC_AUTH_USER`/`BASIC_AUTH_PASS` in
 
 ---
 
-*Built with [Janito](https://github.com/joaompinto/janito) — shout out to [@joaompinto](https://github.com/joaompinto) for the coding agent used for this project. Total cost: $2.*
+*Built with [Janito](https://github.com/joaompinto/janito) — shout out to [@joaompinto](https://github.com/joaompinto) for the coding agent used for this project. Total cost with DeepSeek V4 Flash: ~$2.*
