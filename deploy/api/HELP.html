@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KPI Dashboard — API HELP (for AI agents)</title>
+<style>
+  :root{--bg:#f6f8fa;--card:#fff;--line:#d0d7de;--ink:#1f2328;--mut:#59636e;--code:#0d1117;--acc:#0969da;}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.5}
+  main{max-width:1000px;margin:0 auto;padding:24px 16px 80px}
+  h1{font-size:1.7rem;border-bottom:2px solid var(--acc);padding-bottom:8px}
+  h2{font-size:1.25rem;margin-top:40px;border-bottom:1px solid var(--line);padding-bottom:4px}
+  h3{font-size:1.02rem;margin:24px 0 6px}
+  table{border-collapse:collapse;width:100%;margin:10px 0;background:var(--card)}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top;font-size:.92rem}
+  th{background:#eef1f4}
+  code{background:#eef1f4;border-radius:5px;padding:1px 5px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.86em}
+  pre{background:var(--code);color:#e6edf3;padding:12px 14px;border-radius:8px;overflow-x:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.82rem;line-height:1.5}
+  pre code{background:none;color:inherit;padding:0}
+  .tag{display:inline-block;padding:1px 8px;border-radius:20px;font-weight:600;font-size:.72rem;color:#fff}
+  .get{background:#1a7f37}.post{background:#8250df}.delete{background:#cf222e}.auth{background:#57606a}
+  .note{background:#fff8c5;border:1px solid #d4a72c;border-radius:8px;padding:8px 12px;margin:10px 0;font-size:.92rem}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:14px 0}
+  .kbd{font-weight:600}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+</style>
+</head>
+<body>
+<main>
+  <h1>KPI Dashboard — API reference (HELP)</h1>
+  <p class="mono">Companion machine-readable spec: <a href="openapi.yaml">openapi.yaml</a> (OpenAPI 3.0).</p>
+
+  <div class="note">
+    <b>Who this page is for.</b> An <b>AI agent</b> (or any client/collector) that needs to read the
+    configuration, create/delete metrics and push daily snapshots. It is deliberately written in plain,
+    unambiguous terms. It ships next to the API (<code>deploy/api/HELP.html</code>) and is deployed with it.
+  </div>
+
+  <h2>1 · Purpose &amp; mental model</h2>
+  <p>
+    The dashboard shows a 0–100 aggregate index: a <b>weighted mean</b> of per-metric scores computed from
+    raw daily values and per-metric <b>thresholds</b>. Everything is <b>config-driven</b> and stored in SQLite:
+  </p>
+  <table>
+    <tr><th>Table</th><th>Content</th><th>Managed by</th></tr>
+    <tr><td class="mono">config</td><td>Single row: dashboard <code>title</code>, <code>subtitle</code></td><td><code>POST /api/config</code></td></tr>
+    <tr><td class="mono">config_metrics</td><td>One row per metric: key, name, why, G/Y/O thresholds, weight</td><td><code>POST /api/config/metrics</code> and <code>DELETE /api/config/metrics/{key}</code></td></tr>
+    <tr><td class="mono">metrics</td><td>Daily raw value + computed score per metric</td><td><code>POST /api/metrics</code> (snapshot)</td></tr>
+    <tr><td class="mono">snapshot</td><td>Daily aggregate index + zone</td><td><code>POST /api/metrics</code> (snapshot)</td></tr>
+  </table>
+  <p>
+    <b>Important:</b> there are <b>no hardcoded/business metric defaults in the code</b>. To define what the
+    dashboard measures you <b>must create metrics through the API</b> (section 5). The frontend is fully
+    generic and renders whatever <code>GET /api/config</code> returns.
+  </p>
+
+  <h2>2 · Base URL &amp; authentication</h2>
+  <p>The app may be installed in the webroot or under a subfolder (default deployment: <code>/dashboard/</code>). All API paths below are relative to that base:</p>
+  <pre><code>BASE = https://your-domain.com/dashboard     # if deployed at the webroot: https://your-domain.com</code></pre>
+
+  <p>Two independent authentication modes (never mixed):</p>
+  <table>
+    <tr><th>Mode</th><th>Used for</th><th>Header</th></tr>
+    <tr><td><span class="tag auth">Bearer</span></td><td>All <b>writes</b>: POST config, POST/DELETE metrics config, POST snapshots</td><td><code>Authorization: Bearer &lt;API_TOKEN&gt;</code></td></tr>
+    <tr><td><span class="tag get">Basic</span></td><td>All <b>reads</b>: GET config, GET latest, GET history</td><td><code>Authorization: Basic &lt;base64(user:pass)&gt;</code> (or <code>-u user:pass</code>)</td></tr>
+  </table>
+  <pre><code># write example
+curl -X POST "$BASE/api/config/metrics" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{...}'
+
+# read example
+curl -u "$USER:$PASS" "$BASE/api/config"</code></pre>
+
+  <h2>3 · Endpoints summary</h2>
+  <table>
+    <tr><th>Method</th><th>Path</th><th>Auth</th><th>Purpose</th></tr>
+    <tr><td><span class="tag get">GET</span></td><td class="mono">/api/config</td><td>Basic</td><td>Read the active setup (title, subtitle, all metrics)</td></tr>
+    <tr><td><span class="tag post">POST</span></td><td class="mono">/api/config</td><td>Bearer</td><td>Set <b>only</b> title/subtitle (metrics are NOT accepted here)</td></tr>
+    <tr><td><span class="tag post">POST</span></td><td class="mono">/api/config/metrics</td><td>Bearer</td><td>Create or update <b>one</b> metric (upsert by key)</td></tr>
+    <tr><td><span class="tag delete">DELETE</span></td><td class="mono">/api/config/metrics/{key}</td><td>Bearer</td><td>Delete a metric</td></tr>
+    <tr><td><span class="tag post">POST</span></td><td class="mono">/api/metrics</td><td>Bearer</td><td>Save/replace the daily snapshot</td></tr>
+    <tr><td><span class="tag get">GET</span></td><td class="mono">/api/metrics/latest</td><td>Basic</td><td>Latest snapshot (gauges)</td></tr>
+    <tr><td><span class="tag get">GET</span></td><td class="mono">/api/metrics?from=&amp;to=</td><td>Basic</td><td>History (default last 30 days)</td></tr>
+  </table>
+
+  <h2>4 · Metric definition (the only configuration you need to understand)</h2>
+  <p>Each metric is defined by one object. Thresholds use <b>G = green</b>, <b>Y = yellow</b>, <b>O = orange</b>; <b>red is everything above O</b> (4 zones, open-ended red).</p>
+  <table>
+    <tr><th>Field</th><th>Type</th><th>Required</th><th>Meaning</th></tr>
+    <tr><td class="mono">key</td><td>string</td><td>yes</td><td>Unique id. URL-safe: letters, digits, <code>_ . -</code>, not starting with a separator. E.g. <code>orders_to_fulfil</code></td></tr>
+    <tr><td class="mono">name</td><td>string</td><td>no*</td><td>Label shown on the dashboard (default: the key)</td></tr>
+    <tr><td class="mono">why</td><td>string</td><td>no*</td><td>Short “why it matters”, shown under the name (default: empty)</td></tr>
+    <tr><td class="mono">G</td><td>number ≥ 0</td><td>yes</td><td>Green threshold: value in <code>[0..G]</code> → green zone (score 0–25)</td></tr>
+    <tr><td class="mono">Y</td><td>number ≥ 0</td><td>yes</td><td>Yellow threshold: value in <code>[G+1..Y]</code> → yellow (score 26–50)</td></tr>
+    <tr><td class="mono">O</td><td>number ≥ 0</td><td>yes</td><td>Orange threshold: value in <code>[Y+1..O]</code> → orange (score 51–75); above O → red (76–100)</td></tr>
+    <tr><td class="mono">weight</td><td>number ≥ 0</td><td>no*</td><td>Relative importance in the aggregate (default: <code>1</code>)</td></tr>
+  </table>
+  <p class="note">* <code>name</code>/<code>why</code> default sensibly; <code>weight</code> defaults to 1. Missing/empty <code>name</code> falls back to the key.</p>
+
+  <h3>Score &amp; aggregate — exact rules</h3>
+  <ul>
+    <li>Per metric, the raw value maps to a 0–100 score by piecewise-linear interpolation over the bands: green <code>[0,G]→0–25</code>, yellow <code>[G+1,Y]→26–50</code>, orange <code>[Y+1,O]→51–75</code>, red <code>[O+1, 2·(O+1)]→76–100</code> (saturates at <code>2·(O+1)</code>). If <code>G=0</code> green only applies to value <code>0</code>.</li>
+    <li>Aggregate index = <b>weighted mean</b>:
+      <pre><code>index = round( Σ(scoreᵢ × weightᵢ) / Σ(weightᵢ) , 1 )</code></pre>
+    </li>
+    <li><b>Weights never need to sum to 1.00.</b> They are normalised by their total at calculation time. If all weights are 0, the plain average of the scores is used.</li>
+    <li>Zones from the index: green ≤25, yellow ≤50, orange ≤75, red &gt;75.</li>
+  </ul>
+
+  <h2>5 · Suggested workflow for an agent / collector</h2>
+  <div class="card">
+    <p><b>0) Authenticate.</b> You need a Bearer token (operator-provided) for writes and Basic credentials for reads.</p>
+    <p><b>1) Inspect</b> the current setup: <code>GET /api/config</code>. It returns <code>{"title":…,"subtitle":…,"metrics":{"key":{name,why,G,Y,O,weight},…}}</code>.</p>
+    <p><b>2) Create/update each metric</b> you want to track with <code>POST /api/config/metrics</code> (repeat per metric). Re-POSTing the same key updates it; the frontend adapts automatically.</p>
+    <p><b>3) (Optional) set the dashboard title/subtitle</b> with <code>POST /api/config</code>.</p>
+    <p><b>4) Every day, push the snapshot:</b> <code>POST /api/metrics</code> with <code>{"date":"YYYY-MM-DD","metrics":{"key":rawValue,…}}</code>. Re-POSTing the same date <b>replaces</b> that day (idempotent) — use it to correct mistakes.</p>
+    <p><b>5) Read back</b>: <code>GET /api/metrics/latest</code> and <code>GET /api/metrics?from=…&amp;to=…</code> to verify. Responses include, per metric: <code>value</code> (raw), <code>score</code> (0–100) and <code>zone</code>.</p>
+  </div>
+
+  <h2>6 · Endpoint details</h2>
+
+  <h3><span class="tag get">GET</span> <code>/api/config</code> — read the active setup</h3>
+  <p>Auth: <span class="tag auth">Basic</span>. Returns the title/subtitle and every configured metric.</p>
+  <pre><code>curl -u "$USER:$PASS" "$BASE/api/config"
+
+200 {
+  "title": "Production Dashboard",
+  "subtitle": "updated daily at 20:00",
+  "metrics": {
+    "orders": {"name": "Orders to fulfil", "why": "fast fulfilment keeps trust", "G": 0, "Y": 2, "O": 5, "weight": 0.6},
+    "emails": {"name": "Emails to triage", "why": "quick replies improve trust", "G": 5, "Y": 15, "O": 30, "weight": 0.4}
+  }
+}</code></pre>
+
+  <h3><span class="tag post">POST</span> <code>/api/config</code> — set title/subtitle</h3>
+  <p>Auth: <span class="tag auth">Bearer</span>. Accepts <b>only</b> <code>title</code> and/or <code>subtitle</code>. Sending a <code>metrics</code> field is rejected (metrics use the dedicated endpoints).</p>
+  <pre><code>curl -X POST "$BASE/api/config" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"title": "Production Dashboard", "subtitle": "updated daily at 20:00"}'
+
+200 {"ok": true, "title": "Production Dashboard", "subtitle": "updated daily at 20:00"}</code></pre>
+
+  <h3><span class="tag post">POST</span> <code>/api/config/metrics</code> — create/update one metric</h3>
+  <p>Auth: <span class="tag auth">Bearer</span>. Upsert by <code>key</code>: unknown key → created; existing key → updated. Validations: key URL-safe, thresholds numeric ≥ 0, weight ≥ 0.</p>
+  <pre><code>curl -X POST "$BASE/api/config/metrics" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"key": "orders", "name": "Orders to fulfil", "why": "fast fulfilment keeps trust",
+       "G": 0, "Y": 2, "O": 5, "weight": 0.6}'
+
+200 {"ok": true, "created": true, "key": "orders",
+     "metric": {"name": "Orders to fulfil", "why": "…", "G": 0, "Y": 2, "O": 5, "weight": 0.6}}</code></pre>
+
+  <h3><span class="tag delete">DELETE</span> <code>/api/config/metrics/{key}</code> — delete a metric</h3>
+  <p>Auth: <span class="tag auth">Bearer</span>. Removes the metric from the active configuration. Historical rows are kept but hidden from GET responses; re-creating the key later restores them.</p>
+  <pre><code>curl -X DELETE "$BASE/api/config/metrics/orders" -H "Authorization: Bearer $TOKEN"
+
+200 {"ok": true, "key": "orders", "deleted": true}
+404 {"error": "metric not found: orders"}</code></pre>
+
+  <h3><span class="tag post">POST</span> <code>/api/metrics</code> — save/replace a daily snapshot</h3>
+  <p>Auth: <span class="tag auth">Bearer</span>. The <code>metrics</code> object must contain <b>exactly all active keys</b> (missing → 400; unknown extra keys are ignored). The optional <code>index</code> field is <b>ignored</b>: the server recomputes scores and the aggregate.</p>
+  <pre><code>curl -X POST "$BASE/api/metrics" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"date": "2026-09-01", "metrics": {"orders": 2, "emails": 10}, "index": 0}'
+
+200 {"ok": true, "date": "2026-09-01", "index": 55.8, "zone": "orange"}</code></pre>
+  <p class="note">If no metrics have been configured yet, the API answers <code>400</code> with
+  “no metrics configured yet: create them first with POST /api/config/metrics”.</p>
+
+  <h3><span class="tag get">GET</span> <code>/api/metrics/latest</code> — latest snapshot</h3>
+  <p>Auth: <span class="tag auth">Basic</span>. Used by the dashboard gauges. Contains <code>date</code>, <code>index</code>, <code>zone</code> and per-metric <code>{value, score, zone}</code>.</p>
+
+  <h3><span class="tag get">GET</span> <code>/api/metrics?from=&amp;to=</code> — history</h3>
+  <p>Auth: <span class="tag auth">Basic</span>. Optional <code>from</code>/<code>to</code> (<code>YYYY-MM-DD</code>); default = last 30 days (inclusive). Returns a chronological array of daily snapshots.</p>
+  <pre><code>curl -u "$USER:$PASS" "$BASE/api/metrics?from=2026-08-01&amp;to=2026-08-24"</code></pre>
+
+  <h2>7 · Errors &amp; conventions</h2>
+  <table>
+    <tr><th>Status</th><th>Meaning</th></tr>
+    <tr><td>200</td><td>Success (body described per endpoint)</td></tr>
+    <tr><td>400</td><td>Invalid input — body <code>{"error": "human readable reason"}</code></td></tr>
+    <tr><td>401</td><td>Missing/wrong token (writes) or credentials (reads) — <code>{"error":"unauthorized"}</code></td></tr>
+    <tr><td>404</td><td>Unknown endpoint or metric key not found</td></tr>
+    <tr><td>405</td><td>Method not allowed on that path</td></tr>
+    <tr><td>500</td><td>Server/database error</td></tr>
+  </table>
+  <ul>
+    <li>Bodies are always JSON, UTF-8.</li>
+    <li>Dates are always <code>YYYY-MM-DD</code> (a real calendar date).</li>
+    <li>GET responses only include metrics that are still in the active configuration.</li>
+    <li>Snapshots are idempotent per date: re-POSTing the same date atomically replaces it.</li>
+  </ul>
+</main>
+</body>
+</html>

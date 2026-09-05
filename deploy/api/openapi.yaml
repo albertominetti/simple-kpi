@@ -1,0 +1,327 @@
+openapi: 3.0.3
+info:
+  title: KPI Dashboard API
+  description: |
+    Config-driven KPI dashboard. Metric definitions are stored in a
+    `config_metrics` table and managed exclusively through this API — there
+    are NO hardcoded/business metric defaults in the code. The dashboard
+    title/subtitle are stored in a single-row `config` table.
+
+    Two auth modes: Bearer token for writes (POST/DELETE), HTTP Basic for
+    reads (GET). All paths below are relative to the app base (e.g.
+    https://host/dashboard when deployed under /dashboard/).
+
+    Human-readable companion page: HELP.html (same folder).
+  version: 1.0.0
+
+servers:
+  - url: /dashboard
+    description: Default deployment subfolder (use / when installed in the webroot)
+
+tags:
+  - name: config
+    description: Dashboard title/subtitle and metric definitions
+  - name: metrics
+    description: Daily snapshots and history
+
+security:
+  - bearerAuth: []
+
+paths:
+  /api/config:
+    get:
+      tags: [config]
+      summary: Read the active setup (title, subtitle, all metrics)
+      security:
+        - basicAuth: []
+      responses:
+        '200':
+          description: Active configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Config'
+    post:
+      tags: [config]
+      summary: Set title and/or subtitle (metrics NOT accepted here)
+      description: >
+        Manages ONLY the dashboard title/subtitle. Sending a `metrics` field
+        is rejected with 400 — metrics are managed via
+        POST /api/config/metrics and DELETE /api/config/metrics/{key}.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string, example: Production Dashboard }
+                subtitle: { type: string, example: updated daily at 20:00 }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  title: { type: string }
+                  subtitle: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/config/metrics:
+    post:
+      tags: [config]
+      summary: Create or update one metric (upsert by key)
+      description: >
+        If the key does not exist the metric is created; if it exists it is
+        updated. Thresholds: G=green, Y=yellow, O=orange; red is everything
+        above O (4 zones, open-ended red).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MetricInput'
+      responses:
+        '200':
+          description: Metric stored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  created: { type: boolean, example: true }
+                  key: { type: string, example: orders }
+                  metric:
+                    $ref: '#/components/schemas/Metric'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/config/metrics/{key}:
+    delete:
+      tags: [config]
+      summary: Delete a metric
+      description: >
+        Removes the metric from the active configuration. Historical daily
+        rows are kept but no longer exposed by GET responses; re-creating the
+        same key later restores them.
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema: { type: string }
+          example: orders
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  key: { type: string }
+                  deleted: { type: boolean, example: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/metrics:
+    get:
+      tags: [metrics]
+      summary: Daily history (default last 30 days)
+      security:
+        - basicAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema: { type: string, format: date, example: '2026-08-01' }
+        - name: to
+          in: query
+          required: false
+          schema: { type: string, format: date, example: '2026-08-24' }
+      responses:
+        '200':
+          description: Chronological array of daily snapshots
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Snapshot'
+    post:
+      tags: [metrics]
+      summary: Save/replace a daily snapshot (idempotent per date)
+      description: >
+        The `metrics` object must contain exactly all active configuration
+        keys (a missing key -> 400; unknown extra keys are ignored). The
+        optional `index` field is ignored: scores and the weighted aggregate
+        are recomputed server-side. Weights are normalised by their total;
+        if the total is 0 the plain average of the scores is used.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [date, metrics]
+              properties:
+                date:
+                  type: string
+                  format: date
+                  example: '2026-09-01'
+                metrics:
+                  type: object
+                  additionalProperties: { type: number, minimum: 0 }
+                  description: key -> raw value for every active metric
+                  example: { orders: 2, emails: 10 }
+                index:
+                  type: number
+                  description: ignored (kept for backward compatibility)
+      responses:
+        '200':
+          description: Snapshot stored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  date: { type: string, format: date }
+                  index: { type: number, example: 55.8 }
+                  zone:
+                    type: string
+                    enum: [green, yellow, orange, red]
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/metrics/latest:
+    get:
+      tags: [metrics]
+      summary: Latest snapshot (for the gauges)
+      security:
+        - basicAuth: []
+      responses:
+        '200':
+          description: Latest snapshot (null fields when no data yet)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Snapshot'
+                  - type: object
+                    properties:
+                      metrics:
+                        type: object
+                        description: key -> point data for the latest date
+                        additionalProperties:
+                          $ref: '#/components/schemas/MetricPoint'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: "API_TOKEN (writes). Header: Authorization: Bearer <API_TOKEN>"
+    basicAuth:
+      type: http
+      scheme: basic
+      description: Basic credentials configured for reads
+
+  schemas:
+    Config:
+      type: object
+      properties:
+        title: { type: string, example: Production Dashboard }
+        subtitle: { type: string, example: updated daily at 20:00 }
+        metrics:
+          type: object
+          description: metric_key -> definition (always an object, {} when empty)
+          additionalProperties:
+            $ref: '#/components/schemas/Metric'
+
+    MetricInput:
+      type: object
+      required: [key, G, Y, O]
+      properties:
+        key:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*$'
+          description: Unique URL-safe id
+          example: orders_to_fulfil
+        name:
+          type: string
+          description: "Display label (default: the key)"
+          example: Orders to fulfil
+        why:
+          type: string
+          description: Short "why it matters" shown under the name
+          example: fast fulfilment keeps trust
+        G: { type: number, minimum: 0, description: Green threshold (green zone 0..G) }
+        Y: { type: number, minimum: 0, description: Yellow threshold (yellow zone G+1..Y) }
+        O: { type: number, minimum: 0, description: Orange threshold (orange zone Y+1..O); above O is red }
+        weight:
+          type: number
+          minimum: 0
+          default: 1
+          description: Relative weight (normalised by total at scoring time)
+
+    Metric:
+      type: object
+      properties:
+        name: { type: string }
+        why: { type: string }
+        G: { type: number }
+        Y: { type: number }
+        O: { type: number }
+        weight: { type: number }
+
+    Snapshot:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        index: { type: number, description: Aggregate 0-100 (weighted mean of scores) }
+        zone: { type: string, enum: [green, yellow, orange, red] }
+        metrics:
+          type: object
+          description: key -> point data (may be empty for deleted metrics)
+          additionalProperties:
+            $ref: '#/components/schemas/MetricPoint'
+
+    MetricPoint:
+      type: object
+      properties:
+        value: { type: number, description: Raw value sent by the collector }
+        score: { type: number, description: Re-computed 0-100 score }
+        zone: { type: string, enum: [green, yellow, orange, red] }
+
+  responses:
+    BadRequest:
+      description: Invalid input
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string }
+    Unauthorized:
+      description: Missing/wrong token or credentials
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string, example: unauthorized }
+    NotFound:
+      description: Not found (endpoint or metric key)
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string }

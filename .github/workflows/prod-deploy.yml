@@ -1,20 +1,54 @@
-name: Deploy production (FTP)
+name: Deploy production (FTPS)
 
-# Builds the frontend and publishes via FTP:
-#   - frontend/dist/  -> webroot (or /dashboard/)
-#   - deploy/         -> api/ and data/ (config.php excluded)
+# Builds the SPA frontend and publishes EVERYTHING (frontend + backend) into a
+# single remote folder whose default is <FTP-home>/dashboard/ (configurable).
 #
-# Runs on push to main or manually (workflow_dispatch).
-# Required secrets: FTP_HOST, FTP_USERNAME, FTP_PASSWORD, FTP_DIR.
+# Final remote layout (default server-dir = "dashboard/"):
+#   dashboard/
+#     index.html        <- compiled SPA frontend (what the browser loads)
+#     assets/…          <- hashed JS/CSS bundles
+#     .htaccess         <- Basic Auth for the dashboard/GETs + POST exemption
+#     api/
+#       .htaccess       <- rewrite api/config, api/config/metrics(/{key}),
+#                          api/metrics, api/metrics/latest -> metrics.php
+#       metrics.php     <- the whole backend (server side API)
+#       HELP.html       <- API reference for humans/AI agents
+#       openapi.yaml    <- machine-readable OpenAPI spec of the same API
+#     data/
+#       .htaccess       <- denies web access to data/
+#       (config.php is NEVER uploaded: it is owned/managed on the server and
+#        is left untouched so tokens/credentials/setup are never overwritten)
+#
+# Required secrets (Settings -> Secrets and variables -> Actions):
+#   ftp_host            FTP(S) host
+#   ftp_username        FTP(S) username
+#   ftp_password        FTP(S) password
+# Optional secret:
+#   ftp_port            FTPS port (default 21)
+#
+# Configurable target folder (must end with '/'):
+#   1. "deploy_dir" input of the manual run (workflow_dispatch), or
+#   2. repository variable DEPLOY_DIR (Settings -> Variables), or
+#   3. default: "dashboard/"
+#
+# Only the trailing "Deploy" part follows the RopeDataSheet prod-deploy.yml
+# (SamKirkland/FTP-Deploy-Action@v4.4.0 + protocol: ftps + lowercase secrets).
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      deploy_dir:
+        description: >-
+          Remote folder to deploy into, relative to FTP home (trailing "/"
+          required). Overrides the DEPLOY_DIR variable. Default: dashboard/
+        required: false
+        default: ''
 
-# Only one deploy at a time; new runs cancel queued ones.
+# Only one deploy at a time; a new run cancels the queued one.
 concurrency:
-  group: deploy-produzione
+  group: deploy-production
   cancel-in-progress: true
 
 jobs:
@@ -39,37 +73,54 @@ jobs:
           npm ci
           npm run build
 
-      # Publishes the frontend build to the webroot.
-      - name: Deploy frontend (dist/) via FTP
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-        with:
-          server: ${{ secrets.FTP_HOST }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: ./frontend/dist/
-          server-dir: ${{ secrets.FTP_DIR }}
+      # Assemble a single folder with the exact content of the remote
+      # "dashboard/" directory, so the FTPS sync is one atomic pass.
+      # Only the intended files are copied (never whole directories), so
+      # dev-only or unexpected files can never reach the server.
+      - name: Assemble deploy bundle
+        run: |
+          set -eu
+          rm -rf release
+          mkdir -p release/api release/data
 
-      # Publishes backend (api/ and data/). NOTE: config.php is excluded so
-      # that token/credentials/setup already present in production are not
-      # overwritten.
-      - name: Deploy backend (api/ and data/) via FTP
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-        with:
-          server: ${{ secrets.FTP_HOST }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: ./deploy/
-          server-dir: ${{ secrets.FTP_DIR }}
-          exclude: |
-            ./.htaccess
-            ./data/config.php
+          # 1) Compiled SPA: index.html + assets/… + root .htaccess (Basic Auth)
+          cp -a frontend/dist/. release/
 
-      # Uploads dist/ as a backup artifact of the run.
-      - name: Upload artifact (dist/)
+          # 2) Backend API (server side API, managed by metrics.php)
+          cp deploy/api/metrics.php release/api/
+          cp deploy/api/.htaccess release/api/
+          # 2b) API documentation (shipped next to the API)
+          cp deploy/api/HELP.html release/api/
+          cp deploy/api/openapi.yaml release/api/
+
+          # 3) data/ web protection only.
+          #    deploy/data/config.php is deliberately NOT copied: it is the
+          #    server-owned configuration (API_TOKEN, credentials, METRICS).
+          #    deploy/.htaccess and deploy/router.php are NOT copied either:
+          #    the root .htaccess comes from dist/ and router.php is dev-only.
+          cp deploy/data/.htaccess release/data/
+
+          echo "== release tree =="
+          find release -type f | sort
+
+      - name: Deploy via FTPS
+        uses: SamKirkland/FTP-Deploy-Action@v4.4.0
+        with:
+          server: ${{ secrets.ftp_host }}
+          username: ${{ secrets.ftp_username }}
+          password: ${{ secrets.ftp_password }}
+          protocol: ftps
+          port: ${{ secrets.ftp_port || '21' }}
+          local-dir: ./release/
+          server-dir: ${{ inputs.deploy_dir || vars.DEPLOY_DIR || 'dashboard/' }}
+          log-level: verbose
+
+      # Keeps a downloadable copy of the exact bundle that was deployed.
+      - name: Upload artifact (release/)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kpi-dashboard-dist
-          path: frontend/dist
+          name: kpi-dashboard-release
+          path: release
           if-no-files-found: warn
           retention-days: 7

@@ -1,10 +1,12 @@
 # Basic Auth for the dashboard (and for the API GETs).
 # Copied to dist/ by Vite: upload it to the webroot together with dist/.
 #
-# POST /api/metrics uses the Bearer token and must NOT require Basic Auth:
-# with Apache 2.4 <RequireAny> + "Require method POST" we exempt it.
-# On Apache 2.2 move this file into a subfolder that contains only the
-# dashboard (the API GETs will then be protected by BASIC_AUTH in config.php).
+# Writes (POST /api/metrics, POST /api/config, POST /api/config/metrics,
+# DELETE /api/config/metrics/{key}) use the Bearer token and must NOT require
+# Basic Auth: with Apache 2.4 <RequireAny> + "Require method POST/DELETE" we
+# exempt them. On Apache 2.2 move this file into a subfolder that contains
+# only the dashboard (the API GETs will then be protected by BASIC_AUTH in
+# config.php).
 
 AuthType Basic
 AuthName "KPI Dashboard"
@@ -15,5 +17,6 @@ Require valid-user
     <RequireAny>
         Require valid-user
         Require method POST
+        Require method DELETE
     </RequireAny>
 </IfModule>

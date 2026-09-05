@@ -15,7 +15,7 @@ for anyone maintaining or extending the code.
 | **PHP** | 7.4+ / 8.x (tested on 8.5) | Complete REST API in a single file (`metrics.php`) |
 | **PDO + SQLite** | standard extension | Persistence (zero configuration, no DB server) |
 | **Apache** | 2.2 / 2.4 | Shared hosting: `.htaccess`, `mod_rewrite`, Basic Auth |
-| **JSON** | — | API data-exchange contract and configuration |
+| **JSON / YAML** | — | API data-exchange contract (`JSON`), OpenAPI spec (`YAML`) |
 
 Minimum hosting requirements: PHP with `PDO_SQLITE` (standard in
 PHP 7.4+/8.x), Apache with `mod_rewrite` and `.htaccess` support. **No**
@@ -33,36 +33,42 @@ Composer, frameworks, MySQL or server-side build.
 
 The frontend is **static** (no server-side runtime): it is uploaded to the
 webroot as ready files. It is **completely generic**: it contains no
-hardcoded metric, everything comes from the backend.
+hardcoded metric, everything comes from the backend via `GET /api/config`.
 
 ---
 
 ## 2. Architecture
 
 ```
-┌──────────────────┐   POST /api/config (Bearer)     ┌──────────────────────────────┐
-│   Client         │   POST /api/metrics (Bearer)    │   PHP API + SQLite (hosting) │
-│   (collector)    │ ───────────────────────────────▶ │  - metrics.php (the whole    │
-│                  │                                  │    backend, routing included)│
-│   gathers data   │   GET /api/config (Basic)        │  - data/kpi.sqlite           │
-│   from sources   │   GET /api/metrics/* (Basic)     │  - data/config.php (default) │
-│                  │ ◀─────────────────────────────── │  - .htaccess (rewrite/auth)  │
-└──────────────────┘                                  └──────────────┬───────────────┘
-                                                                     │ GET (Basic Auth)
-                                                             ┌───────▼────────┐
-                                                             │  Browser       │
-                                                             │  static Vue    │
-                                                             │  (dist/)       │
-                                                             └────────────────┘
+┌───────────────┐  POST /api/config            ┌───────────────────────────────┐
+│  Client       │  POST /api/config/metrics    │  PHP API + SQLite (hosting)   │
+│  (collector)  │  DELETE /api/config/metrics/…│                                │
+│               │  POST /api/metrics (Bearer)  │  - metrics.php (the whole     │
+│  gathers data │ ────────────────────────────▶│    backend, routing included) │
+│  from sources │                              │  - data/kpi.sqlite            │
+│               │  GET /api/config (Basic)     │  - data/config.php (secrets)  │
+│               │  GET /api/metrics/* (Basic)  │  - .htaccess (rewrite/auth)   │
+│               │ ◀────────────────────────────│  - api/HELP.html + openapi.yaml
+└───────────────┘                              └───────────────┬───────────────┘
+                                                               │ GET (Basic Auth)
+                                                       ┌───────▼────────┐
+                                                       │  Browser       │
+                                                       │  static Vue    │
+                                                       │  (dist/)       │
+                                                       └────────────────┘
 ```
 
-- **Configuration** (keys, names, descriptions, weights, G/Y/O ranges,
-  title): sent by the client with `POST /api/config`, stored in the DB and
-  read by the frontend with `GET /api/config`. If absent, the **defaults**
-  in `deploy/data/config.php` (const `METRICS`) are used.
-- **Data**: the client sends the daily raw values with
-  `POST /api/metrics`; the server recomputes scores and the aggregate index
-  and exposes them via the GET endpoints.
+- **Metric configuration** lives in the `config_metrics` table and is managed
+  **exclusively through the API** (`POST /api/config/metrics`,
+  `DELETE /api/config/metrics/{key}`). There are **no business metric
+  defaults in the code** (`deploy/data/config.php` has no `METRICS` anymore).
+- **Dashboard identity** (`title`, `subtitle`) lives in the single-row
+  `config` table as plain columns, managed with `POST /api/config`.
+- **Data**: the client sends daily raw values with `POST /api/metrics`; the
+  server recomputes scores and the aggregate index and exposes them via the
+  GET endpoints.
+- **Documentation ships with the API**: `api/HELP.html` (human/AI readable
+  reference) and `api/openapi.yaml` (OpenAPI 3.0 machine-readable spec).
 
 ---
 
@@ -72,8 +78,10 @@ hardcoded metric, everything comes from the backend.
 
 | Method | Path | Auth | Function |
 |---|---|---|---|
-| POST | `/api/config` | Bearer | Save/update the configuration |
-| GET | `/api/config` | Basic | Read the active configuration |
+| POST | `/api/config` | Bearer | Set dashboard title/subtitle (only) |
+| GET | `/api/config` | Basic | Read the active setup (title/subtitle + all metrics) |
+| POST | `/api/config/metrics` | Bearer | Create or update one metric (upsert by key) |
+| DELETE | `/api/config/metrics/{key}` | Bearer | Delete a metric |
 | POST | `/api/metrics` | Bearer | Save/replace the daily snapshot |
 | GET | `/api/metrics/latest` | Basic | Latest snapshot (gauges) |
 | GET | `/api/metrics?from=&to=` | Basic | History (default last 30 days) |
@@ -81,37 +89,54 @@ hardcoded metric, everything comes from the backend.
 ### 3.2 Routing
 
 `metrics.php` acts as a **front controller** without a framework: it parses
-`$_SERVER['REQUEST_URI']` with `substr()` and routes by method (POST/GET).
-In Apache the `/api/*` requests reach `metrics.php` via `mod_rewrite`
-(`.htaccess`); it also works in a subfolder (e.g. `/dashboard/api/...`).
+`$_SERVER['REQUEST_URI']` with regex/`substr()` and routes by path suffix and
+method. Order matters: `/config/metrics/{key}` is matched before the generic
+`/config` and `/metrics` suffixes. In Apache the `/api/*` requests reach
+`metrics.php` via `mod_rewrite` (`.htaccess`); it also works in a subfolder
+(e.g. `/dashboard/api/...`).
 
 The PHP built-in server (local development) does not process `.htaccess`:
-the file `deploy/router.php` (dev only) emulates the rewrite.
+the file `deploy/router.php` (dev only) emulates the rewrite for the same set
+of endpoints.
 
 ### 3.3 Authentication — two levels
 
-- **POST** (writes): **Bearer token**, compared in constant time with
-  `hash_equals()` against `API_TOKEN` (in `config.php`). Prevents timing
+- **Writes (POST + DELETE)**: **Bearer token**, compared in constant time
+  with `hash_equals()` against `API_TOKEN` (in `config.php`). Prevents timing
   attacks. The `Authorization` header is made available to PHP with
   `SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1` in the `.htaccess`
   (essential on many shared CGI/FastCGI hosts).
-- **GET** (reads): **HTTP Basic Auth** managed by the root `.htaccess`
+- **Reads (GET)**: **HTTP Basic Auth** managed by the root `.htaccess`
   (`Require valid-user` + `.htpasswd`). As defence in depth, if
   `BASIC_AUTH_USER`/`BASIC_AUTH_PASS` are set in `config.php`, PHP also
   verifies the credentials.
-- POST is **exempted** from Basic Auth in the `.htaccess`
-  (`<RequireAny> Require valid-user / Require method POST </RequireAny>`),
-  because it uses the Bearer token.
+- POST and DELETE are **exempted** from Basic Auth in the `.htaccess`
+  (`<RequireAny> Require valid-user / Require method POST /
+  Require method DELETE </RequireAny>`), because they use the Bearer token.
 
 ### 3.4 Validations (all server-side)
 
 - `date` must be a real `YYYY-MM-DD` (regex + `DateTime::createFromFormat`).
-- All keys of the active configuration must be present in the `metrics`
-  payload, with numeric values ≥ 0 → otherwise **400**.
-- `POST /api/config`: G/Y/O thresholds numeric ≥ 0, non-empty string keys,
-  **weights must sum to 1.00** (tolerance 0.0001) → otherwise **400**.
+- Snapshot `POST /api/metrics`: every **active** metric key must be present
+  with a numeric value ≥ 0 → otherwise **400** (unknown extra keys ignored).
+- `POST /api/config/metrics`: `key` URL-safe
+  (`^[A-Za-z0-9][A-Za-z0-9_.-]*$`), thresholds `G`/`Y`/`O` numeric ≥ 0,
+  `weight` numeric ≥ 0 (default `1`) → otherwise **400**.
+- `POST /api/config`: only `title`/`subtitle` strings; a `metrics` field is
+  rejected with a **400** hint pointing to `/api/config/metrics`.
 - Missing/wrong token → **401** `{"error":"unauthorized"}`.
-- Unknown endpoint → **404**; disallowed method → **405**.
+- Unknown endpoint → **404**; disallowed method on a known path → **405**.
+
+### 3.5 API documentation
+
+The API is documented twice, both shipped next to the backend in
+`deploy/api/` (and included in the deploy):
+
+- `HELP.html` — a self-contained reference written for **humans and AI
+  agents** (purpose, auth, endpoint-by-endpoint schemas/examples, workflow,
+  errors).
+- `openapi.yaml` — an **OpenAPI 3.0.3** machine-readable specification of the
+  same contract (can be fed to Swagger/Redoc/AI tooling).
 
 ---
 
@@ -145,26 +170,51 @@ CREATE TABLE snapshot (
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Configuration sent by the client (single row)
+-- Dashboard title/subtitle (single row, plain columns, NOT a JSON blob)
 CREATE TABLE config (
     id          INTEGER PRIMARY KEY CHECK (id = 1),  -- single row
-    json        TEXT NOT NULL,          -- {title, subtitle, metrics:{...}}
+    title       TEXT NOT NULL DEFAULT 'Dashboard KPI',
+    subtitle    TEXT NOT NULL DEFAULT '',
+    updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Metric definitions (managed via the API, NOT hardcoded)
+CREATE TABLE config_metrics (
+    metric_key  TEXT PRIMARY KEY,       -- URL-safe id, e.g. "orders"
+    name        TEXT NOT NULL,          -- display label (fallback: key)
+    why         TEXT NOT NULL DEFAULT '',-- "why it matters"
+    G           REAL NOT NULL,          -- green threshold
+    Y           REAL NOT NULL,          -- yellow threshold
+    O           REAL NOT NULL,          -- orange threshold (above O -> red)
+    weight      REAL NOT NULL DEFAULT 1,-- relative weight (normalized)
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
 ### Design choices
 
-- **Key-value metrics** (one row per key instead of fixed columns): when the
-  client changes the metrics, no schema migration is needed — "zero
-  migration". One day = N rows in `metrics` + 1 row in `snapshot`.
+- **Metrics in their own table, not a JSON blob**: each metric is one row in
+  `config_metrics`. This makes create/update/delete trivial and queryable,
+  avoids parsing a whole JSON document per request, and keeps the `config`
+  table for the dashboard identity only.
+- **Key-value data rows** (one row per metric/day instead of fixed columns):
+  when metrics change, no schema migration is needed — "zero migration". One
+  day = N rows in `metrics` + 1 row in `snapshot`.
 - **Upsert per date**: `DELETE` + `INSERT` in a transaction (keys can change
   between configurations, so DELETE is safer than row-by-row
   `INSERT OR REPLACE`). The transaction guarantees atomicity: either the
   whole snapshot is replaced or nothing is.
-- **Config as JSON**: the configuration is an opaque document for the DB;
-  JSON lets you change the structure (e.g. new metric properties) without
-  touching the schema. Validation happens in PHP before saving.
+- **Metric upsert**: `INSERT ... ON CONFLICT(metric_key) DO UPDATE` — one
+  statement both creates and updates a metric.
+- **Deleting a metric** only removes its `config_metrics` row. Historical
+  `metrics` rows are kept but filtered out of the GET responses (a metric no
+  longer in the active configuration is not exposed). Re-creating the same
+  key later restores the history.
+- **Legacy migration**: on first access, `init_schema()` detects an old
+  install (a `config` table with a `json` column), imports any metrics found
+  into `config_metrics`, keeps title/subtitle, then rebuilds `config` with
+  plain columns.
 
 ---
 
@@ -174,7 +224,7 @@ CREATE TABLE config (
 
 Each raw value `v` is mapped to a 0–100 score via **piecewise linear
 interpolation** on 4 bands defined by the G (green), Y (yellow), O (orange)
-thresholds:
+thresholds (red is open-ended above O):
 
 | Band | Value range | Score range |
 |---|---|---|
@@ -201,13 +251,17 @@ Special cases:
 - The red band saturates at `2·(O+1)`: beyond that value the score is 100.
 - Final rounding to **1 decimal**.
 
-### 5.2 Aggregate index
+### 5.2 Aggregate index (weighted mean, weights are NORMALIZED)
 
 ```text
-index = Σ ( score(metric_i) × weight_i )
+index = Σ ( score(metric_i) × weight_i ) / Σ ( weight_i )
 ```
 
-- The **weights** are defined in the configuration and must sum to **1.00**.
+- Weights do **NOT** need to sum to 1.00 (or 100): the sum is used as the
+  normalizing divisor at scoring time. Omitting a weight defaults it to `1`
+  (then the index is a simple average).
+- If `Σ(weight) = 0` (all weights zero), the plain average of the scores is
+  used as a safe fallback.
 - Rounding to 1 decimal.
 
 ### 5.3 Zones
@@ -226,8 +280,8 @@ The zone is computed both for the aggregate index (`zone` column in
 
 The server **never trusts the client**: the `index` field in the POST
 payload is ignored, and scores are recomputed from the raw values + active
-configuration. The frontend uses directly the `score`/`zone`/`index`
-returned by the API (no client-side recomputation).
+configuration at snapshot time. The frontend uses directly the
+`score`/`zone`/`index` returned by the API (no client-side recomputation).
 
 ---
 
@@ -284,12 +338,14 @@ returned by the API (no client-side recomputation).
 |---|---|
 | Writes | Bearer token, `hash_equals` comparison (constant time) |
 | Reads | Basic Auth via `.htaccess` + optional PHP check |
+| POST/DELETE exemption | `<RequireAny>` with `Require method POST` and `Require method DELETE` (Apache 2.4) |
 | `data/` | `.htaccess` with `Require all denied` (Apache 2.4) + `Deny from all` (2.2) and `<FilesMatch>` on php/sqlite/db |
 | Authorization header | `SetEnvIf` in the API `.htaccess` (CGI/FastCGI hosts) |
 | SQL injection | PDO prepared statements everywhere (no concatenation) |
 | XSS | Vue escapes text in templates; API returns only JSON |
 | Path traversal | The dev router blocks `/data` and paths with `..` |
-| Secrets | `API_TOKEN`/`BASIC_AUTH_*` in `data/config.php` (outside webroot, never served) |
+| Metric keys | Restricted to URL-safe charset before any DB/URL use |
+| Secrets | `API_TOKEN`/`BASIC_AUTH_*` in `data/config.php` (outside webroot, never served, never uploaded by CI) |
 
 ---
 
@@ -361,19 +417,28 @@ npm run preview      # serves the freshly built dist/ on http://localhost:4173
 ### 8.5 Deploy on shared hosting (no SSH)
 
 1. **Build** the frontend (8.2) → `frontend/dist/`.
-2. **Upload via FTP / file manager**:
-   - the content of `frontend/dist/` → webroot (or `/dashboard/`);
-   - `deploy/api/` → `/api/`;
-   - `deploy/data/` → outside the webroot if possible, otherwise `/data/`
-     (still protected by its `.htaccess`);
-   - `deploy/.htaccess` → webroot (a single root `.htaccess`: the one in
-     `dist/` and the one in `deploy/` are identical, do not upload both).
-3. **Generate `.htpasswd`** and set `AuthUserFile` in the root `.htaccess`.
-4. **Set `API_TOKEN`** in `config.php` (and, if needed, Basic credentials).
-5. (Optional) send the configuration with `POST /api/config`, or edit the
-   defaults in `config.php`.
-6. **Smoke test**: `curl -u user:password https://example.com/api/config`
-   and `curl ... /api/metrics/latest`.
+2. **Upload via FTP / file manager** — everything goes into a single folder
+   (here `/dashboard/`; change it if you deploy with a different
+   `DEPLOY_DIR`):
+   - the content of `frontend/dist/` → `/dashboard/` (`index.html`,
+     `assets/`, root `.htaccess`);
+   - `deploy/api/` → `/dashboard/api/` (`metrics.php`, its `.htaccess`,
+     `HELP.html`, `openapi.yaml`);
+   - `deploy/data/.htaccess` → `/dashboard/data/` (protects the data folder);
+   - **do not upload** `deploy/data/config.php`, `deploy/.htaccess` and
+     `deploy/router.php`: `config.php` is created/managed directly on the
+     server, the root `.htaccess` already comes from `dist/` (the two are
+     identical) and `router.php` is development-only.
+3. **Generate `.htpasswd`** and set `AuthUserFile` in the root `.htaccess`
+   (the one in `/dashboard/`).
+4. **Set `API_TOKEN`** in the server file `/dashboard/data/config.php`
+   (and, if needed, Basic credentials).
+5. Create the metrics with `POST /api/config/metrics` (and, optionally, set
+   title/subtitle with `POST /api/config`).
+6. **Smoke test**: `curl -u user:password
+   https://example.com/dashboard/api/config` and `curl ...
+   /dashboard/api/metrics/latest`, then create one metric and push one
+   snapshot (see README).
 
 ### 8.6 Local development (backend + frontend together)
 
@@ -393,22 +458,52 @@ The repository includes two workflows in `.github/workflows/`:
 | Workflow | When it runs | What it does |
 |---|---|---|
 | `ci.yml` | push/PR on any branch | Builds the frontend and uploads `dist/` as a downloadable **artifact** |
-| `prod-deploy.yml` | push to `main` (or manual) | Builds the frontend and **publishes via FTP** (dist + api + data) |
+| `prod-deploy.yml` | push to `main` (or manual) | Builds the SPA and **publishes via FTPS** (compiled frontend + `api/` + `data/` protection) into a single remote folder |
 
-To use `prod-deploy.yml` you need **secrets** in the repository
+`prod-deploy.yml` first **assembles a single release folder** with the exact
+content of the remote deploy folder and then uploads it in **one FTPS pass**
+(`SamKirkland/FTP-Deploy-Action`, same trailing part as the RopeDataSheet
+prod workflow). The remote layout is:
+
+```text
+<FTP home>/dashboard/        <- default target (configurable)
+├── index.html               # compiled SPA frontend (served to the browser)
+├── assets/…                 # hashed JS/CSS
+├── .htaccess                # Basic Auth for GETs + POST/DELETE exemption
+├── api/
+│   ├── .htaccess            # rewrite config/config/metrics/metrics/... -> metrics.php
+│   ├── metrics.php          # the whole backend
+│   ├── HELP.html            # API reference (humans / AI agents)
+│   └── openapi.yaml         # OpenAPI 3.0 spec
+└── data/
+    └── .htaccess            # denies web access (config.php lives here, server-side)
+```
+
+The default target is `dashboard/` (relative to the FTP home). To change it:
+
+| Mechanism | Where | Example |
+|---|---|---|
+| Manual run input | `workflow_dispatch` → `deploy_dir` | `kpi/dashboard/` |
+| Repository **variable** | Settings → Variables → `DEPLOY_DIR` | `kpi/dashboard/` |
+| Default | — | `dashboard/` |
+
+Secrets and variables required in the repository
 (Settings → Secrets and variables → Actions):
 
-| Secret | Description |
-|---|---|
-| `FTP_HOST` | FTP host |
-| `FTP_USERNAME` | FTP username |
-| `FTP_PASSWORD` | FTP password |
-| `FTP_DIR` | remote directory (e.g. `/` or `/dashboard/`) |
+| Kind | Name | Description |
+|---|---|---|
+| Secret | `ftp_host` | FTPS host |
+| Secret | `ftp_username` | FTPS username |
+| Secret | `ftp_password` | FTPS password |
+| Secret | `ftp_port` *(optional)* | FTPS port (default `21`) |
+| Variable | `DEPLOY_DIR` *(optional)* | target folder relative to the FTP home, must end with `/` (default `dashboard/`) |
 
-Note: `deploy/data/config.php` is **excluded** from the FTP deploy (it must
-not overwrite the production configuration already set on the server). To
-update token/credentials/setup, act directly on the remote file or use
-`POST /api/config`.
+Note: `deploy/data/config.php` is **never uploaded** (it must not overwrite
+the production token/credentials), nor are the dev-only `deploy/router.php`
+and the duplicate root `.htaccess` (the one in `dist/` is used). The FTPS
+sync tracks only the files it uploads, so a pre-existing server-side
+`config.php` is never deleted. To update token/credentials, act directly on
+the remote file.
 
 ---
 
@@ -417,18 +512,20 @@ update token/credentials/setup, act directly on the remote file or use
 ```
 ├── .github/workflows/
 │   ├── ci.yml                       # CI: build + artifact (push/PR)
-│   └── prod-deploy.yml              # CI: build + FTP (main/manual)
+│   └── prod-deploy.yml              # CI: build + FTPS deploy (main/manual)
 ├── README.md                        # user/client guide
 ├── TECH.md                          # this document
-├── deploy/                          # server side (upload AS-IS)
-│   ├── .htaccess                    # Basic Auth + POST exemption
+├── deploy/                          # server side (uploaded via CI/manually)
+│   ├── .htaccess                    # Basic Auth + POST/DELETE exemption
 │   ├── api/
 │   │   ├── .htaccess                # rewrite + Authorization header
 │   │   ├── metrics.php              # the WHOLE backend (routing included)
+│   │   ├── HELP.html                # API reference (humans / AI agents)
+│   │   ├── openapi.yaml             # OpenAPI 3.0 spec of the API
 │   │   └── router.php               # DEV ONLY (built-in server)
 │   └── data/
 │       ├── .htaccess                # deny all
-│       ├── config.php               # API_TOKEN, credentials, METRICS (default)
+│       ├── config.php               # API_TOKEN, credentials, fallback title (NO metrics)
 │       └── kpi.sqlite               # created on first access (not versioned)
 └── frontend/
     ├── package.json                 # vue, chart.js, vite
@@ -454,11 +551,16 @@ update token/credentials/setup, act directly on the remote file or use
 
 ## 10. Extensibility
 
-- **New metrics / weight-range changes**: `POST /api/config` (or the
-  defaults in `config.php`). No code or frontend change.
-- **New metric fields**: add them to the configuration JSON and to the
-  rendering (e.g. unit of measure). The `config` DB is already JSON-ready.
-- **New endpoints**: add an `if` block in the `metrics.php` routing + a
-  rewrite in `.htaccess`.
+- **New metrics / threshold / weight changes**: `POST /api/config/metrics`
+  (create/update) and `DELETE /api/config/metrics/{key}` (remove). No code or
+  frontend change.
+- **Title/subtitle changes**: `POST /api/config` (no code change).
+- **New metric fields**: add a column to `config_metrics` + expose it in the
+  API responses and in `HELP.html`/`openapi.yaml` (e.g. a unit of measure).
+  Because config is no longer an opaque JSON blob, keep the schema in sync
+  deliberately.
+- **New endpoints**: add a route block in `metrics.php` + a rewrite in
+  `deploy/api/.htaccess` + an entry in the dev `router.php` + document them
+  in `HELP.html`/`openapi.yaml`.
 - **Alerts / notifications**: the natural hook is `handle_post()` (after
   saving), comparing the index with the previous snapshots.

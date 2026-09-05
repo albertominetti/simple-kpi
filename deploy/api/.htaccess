@@ -1,13 +1,17 @@
 # Rewrites for the metrics API.
-#   /api/config          -> metrics.php   (POST save/update setup, GET read setup)
-#   /api/metrics         -> metrics.php   (POST snapshot, GET history)
-#   /api/metrics/latest  -> metrics.php   (GET latest snapshot)
+#   /api/config                  -> metrics.php   (GET read setup, POST title/subtitle)
+#   /api/config/metrics          -> metrics.php   (POST create/update a metric)
+#   /api/config/metrics/{key}    -> metrics.php   (DELETE a metric)
+#   /api/metrics                 -> metrics.php   (POST snapshot, GET history)
+#   /api/metrics/latest          -> metrics.php   (GET latest snapshot)
 # The PHP file parses $_SERVER['REQUEST_URI'] to distinguish the endpoints.
 
 RewriteEngine On
+RewriteRule ^config/metrics/([^/]+)$ metrics.php [L,QSA]
+RewriteRule ^config/metrics$ metrics.php [L,QSA]
 RewriteRule ^config$ metrics.php [L,QSA]
-RewriteRule ^metrics$ metrics.php [L,QSA]
 RewriteRule ^metrics/latest$ metrics.php [L,QSA]
+RewriteRule ^metrics$ metrics.php [L,QSA]
 
 # Makes the Authorization header available to PHP (essential on many shared
 # Apache hosts with CGI/FastCGI, otherwise the collector's Bearer token does

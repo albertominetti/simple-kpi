@@ -11,8 +11,9 @@ frontend/dist/
 .idea/
 .vscode/
 
-# Local data (never version keys/db)
-deploy/data/kpi.sqlite
-deploy/data/kpi.sqlite-*
+# Local data (never version keys / transient DB sidecar files)
+deploy/data/kpi.sqlite-wal
+deploy/data/kpi.sqlite-shm
+deploy/data/kpi.sqlite-journal
 deploy/data/config.local.php
 .htpasswd

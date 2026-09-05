@@ -29,14 +29,12 @@ if ($norm === '/data' || strpos($norm, '/data/') === 0 || strpos($norm, '/.') !=
 }
 
 /* ------------------------------------------------------------------ *
- *  1) API: /api/metrics, /api/metrics/latest, /api/config
+ *  1) API: /api/metrics, /api/metrics/latest, /api/config,
+ *          /api/config/metrics, /api/config/metrics/{key}
  * ------------------------------------------------------------------ */
-if (preg_match('#^/api/(metrics(/latest)?|config)$#', $norm, $m)) {
-    if ($m[1] === 'config') {
-        $_SERVER['REQUEST_URI'] = '/api/config';
-    } else {
-        $_SERVER['REQUEST_URI'] = !empty($m[2]) ? '/api/metrics/latest' : '/api/metrics';
-    }
+if (preg_match('#^/api/(config/metrics/[^/]+|config/metrics|metrics/latest|metrics|config)$#', $norm)) {
+    // metrics.php routes on the REQUEST_URI suffix; keep the original path.
+    $_SERVER['REQUEST_URI'] = $norm;
     require __DIR__ . '/api/metrics.php';
     return true;
 }

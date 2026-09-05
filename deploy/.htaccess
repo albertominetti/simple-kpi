@@ -2,14 +2,15 @@
 # Basic Auth for the dashboard (and for the API GETs).
 #
 # WARNING (important):
-#   POST /api/metrics uses the collector's Bearer token and must NOT require
-#   Basic Auth. With Apache 2.4 this .htaccess protects everything except
-#   POST requests (see <RequireAny> below).
+#   Writes (POST /api/metrics, POST /api/config, POST /api/config/metrics,
+#   DELETE /api/config/metrics/{key}) use the collector's Bearer token and
+#   must NOT require Basic Auth. With Apache 2.4 this .htaccess protects
+#   everything except POST and DELETE requests (see <RequireAny> below).
 #
-#   If the host uses Apache 2.2 or the collector cannot POST, move this file
-#   into a subfolder that contains ONLY the dashboard (e.g. /dashboard/.htaccess)
-#   and leave /api/ without Basic Auth: the API GETs will then be protected
-#   by the BASIC_AUTH check in config.php.
+#   If the host uses Apache 2.2 or the collector cannot POST/DELETE, move this
+#   file into a subfolder that contains ONLY the dashboard (e.g.
+#   /dashboard/.htaccess) and leave /api/ without Basic Auth: the API GETs
+#   will then be protected by the BASIC_AUTH check in config.php.
 # ---------------------------------------------------------------------------
 
 AuthType Basic
@@ -17,14 +18,16 @@ AuthName "KPI Dashboard"
 AuthUserFile /path/on/server/.htpasswd
 Require valid-user
 
-# Apache 2.4: allows POST requests without Basic Auth (Bearer token).
+# Apache 2.4: allows POST and DELETE requests without Basic Auth (they use
+# the Bearer token, checked by PHP).
 <IfModule mod_authz_core.c>
     <RequireAny>
         Require valid-user
         Require method POST
+        Require method DELETE
     </RequireAny>
 </IfModule>
 
-# Apache 2.2 fallback: if it does not support "RequireAny", POST would also
-# require Basic Auth. In that case move this file into a subfolder as
+# Apache 2.2 fallback: if it does not support "RequireAny", POST/DELETE would
+# also require Basic Auth. In that case move this file into a subfolder as
 # explained above.
