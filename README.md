@@ -31,11 +31,14 @@ Collector ──(daily, Bearer: POST + GET)──▶ PHP API + SQLite
   - `api/.htaccess` — rewrites for the `/api/*` endpoints → `metrics.php`
   - `api/HELP.html` — self-contained API reference (for humans and AI agents)
   - `api/openapi.yaml` — machine-readable OpenAPI 3.0 spec of the same API
+  - `example.htaccess` — Basic Auth **template** for the dashboard + GET API,
+    with the Bearer token also allowed for API reads/writes (validated by PHP).
+    It is deployed as-is; `first_setup.php` copies it to the live `.htaccess`
+    and generates `.htpasswd` in the same folder.
   - `data/config.php` — **deployment secrets only** (`API_TOKEN`, `DB_PATH`,
     optional Basic credentials, generic fallback title). **No metrics.**
   - `data/.htaccess` — blocks access to `data/`
-  - `.htaccess` — Basic Auth for dashboard + GET API, with the Bearer token
-    also allowed through for API reads/writes (validated by PHP)
+  - `data/kpi.sqlite` — seed database (shipped as `data/seed.sqlite` by CI)
 - **`frontend/`** — **Vue 3 + Vite + Chart.js** app, build only locally:
   `npm install && npm run build` → upload the content of `dist/` to the
   webroot. It contains no hardcoded metric: it loads the setup from
@@ -305,7 +308,7 @@ the server).
 ```bash
 cd frontend
 npm install        # or npm ci (exact reproduction from the lockfile)
-npm run build      # generates frontend/dist/ (minified HTML/CSS/JS + .htaccess)
+npm run build      # generates frontend/dist/ (minified HTML/CSS/JS)
 ```
 
 For development: `npm run dev` (Vite dev server with hot reload on :5173)
@@ -318,15 +321,20 @@ The repository includes two workflows in `.github/workflows/`:
 
 - **`ci.yml`** — on every push/PR it builds the frontend, verifies the
   output and uploads `dist/` as a downloadable **artifact** (no deploy).
-- **`prod-deploy.yml`** — on every push to `main` (or manually) it builds
-  the SPA and **publishes via FTPS** everything into a single remote folder,
-  whose default is `<FTP home>/dashboard/`:
+- **`prod-deploy.yml`** — builds the SPA and **publishes via FTPS**
+  everything into a single remote folder, whose default is
+  `<FTP home>/dashboard/`:
   - `index.html` + `assets/` → the **compiled frontend** (what the browser loads),
+  - `example.htaccess` → the Basic Auth **template** (deployed on every run;
+    the live `.htaccess` is generated from it once by `first_setup.php`),
   - `api/metrics.php` + `api/.htaccess` → the **server side API**,
   - `api/HELP.html` + `api/openapi.yaml` → the API documentation,
-  - `data/.htaccess` → web protection of the data folder.
-  `data/config.php` is **never uploaded**: it is owned by the server and is
-  left untouched so tokens/credentials are never overwritten.
+  - `data/.htaccess` → web protection of the data folder,
+  - `data/kpi.sqlite` → shipped as `data/seed.sqlite` for new installs.
+  The server-owned files (`.htaccess`, `.htpasswd`, `data/config.php`,
+  `data/kpi.sqlite`) are **never uploaded**: they are generated once by
+  `first_setup.php` and left untouched so tokens, credentials and real data
+  are never overwritten.
 
 To enable the deploy you need repository **secrets** and optionally a
 **variable** (Settings → Secrets and variables → Actions):
@@ -353,18 +361,19 @@ overrides `DEPLOY_DIR`. Details: see **`TECH.md` §8.7**.
    (here `/dashboard/`; change it if you deploy with a different
    `DEPLOY_DIR`):
    - the content of `frontend/dist/` → `/dashboard/` (`index.html`,
-     `assets/`); **do not** upload the root `.htaccess` from `dist/`;
+     `assets/`); the build no longer contains an `.htaccess`;
    - `deploy/api/` → `/dashboard/api/` (`metrics.php`, its `.htaccess`,
      `HELP.html`, `openapi.yaml`);
+   - `deploy/example.htaccess` → `/dashboard/example.htaccess` (Basic Auth
+     template — `first_setup.php` copies it to `.htaccess` in step 3);
    - `deploy/data/.htaccess` → `/dashboard/data/` (protects the data folder);
    - `deploy/data/kpi.sqlite` → `/dashboard/data/seed.sqlite` (seed for new
      installs);
    - `deploy/first_setup.php` → `/dashboard/` (one-time bootstrap);
-   - **do not upload** `deploy/data/config.php`, `deploy/.htaccess` and
-     `deploy/router.php`.
-3. **Run the one-time bootstrap** (generates `data/config.php` with a real
-   `API_TOKEN`, `data/.htpasswd`, the root `.htaccess` with the real
-   `AuthUserFile`, and seeds `data/kpi.sqlite`):
+   - **do not upload** `deploy/data/config.php` and `deploy/router.php`.
+3. **Run the one-time bootstrap** (copies `example.htaccess` → `.htaccess`
+   with the real `AuthUserFile`, generates `.htpasswd` in the same folder,
+   `data/config.php` with a real `API_TOKEN`, and seeds `data/kpi.sqlite`):
 
    ```bash
    curl -X POST https://example.com/dashboard/first_setup.php \
@@ -430,15 +439,16 @@ only the dashboard and set `BASIC_AUTH_USER`/`BASIC_AUTH_PASS` in
 ├── .github/workflows/ci.yml
 ├── .github/workflows/prod-deploy.yml
 ├── README.md
+├── QUICK_START.md
 ├── TECH.md
 ├── deploy/
-│   ├── .htaccess
+│   ├── example.htaccess
+│   ├── first_setup.php
 │   ├── api/{.htaccess, metrics.php, HELP.html, openapi.yaml}
-│   └── data/{.htaccess, config.php}
+│   └── data/{.htaccess, config.php, kpi.sqlite}
 └── frontend/
     ├── package.json
     ├── vite.config.js
     ├── index.html
-    ├── public/.htaccess
     └── src/{main.js, App.vue, api.js, metrics.js, style.css, components/…}
 ```

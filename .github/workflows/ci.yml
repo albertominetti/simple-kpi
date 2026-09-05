@@ -37,7 +37,6 @@ jobs:
       - name: Verify output
         run: |
           test -f dist/index.html
-          test -f dist/.htaccess
           test -n "$(ls dist/assets/index-*.js 2>/dev/null)"
           test -n "$(ls dist/assets/index-*.css 2>/dev/null)"
           echo "Build OK:"

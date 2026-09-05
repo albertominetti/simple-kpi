@@ -1,0 +1,71 @@
+# ---------------------------------------------------------------------------
+# example.htaccess - Basic Auth template for the KPI dashboard.
+#
+# This is a TEMPLATE and is deployed to the FTP folder as "example.htaccess",
+# so it can be freely overwritten by every deploy. It is NOT active by
+# itself: Apache only reads files named ".htaccess".
+#
+# first_setup.php turns it into the live ".htaccess" on first setup:
+#   1. it writes the Apache-compatible ".htpasswd" in the SAME folder, and
+#   2. it copies this file to ".htaccess", replacing the AuthUserFile
+#      placeholder below with the absolute path to that ".htpasswd".
+# The generated ".htaccess" and ".htpasswd" are server-owned: later deploys
+# only overwrite this example.htaccess, never those two files.
+#
+# Access control (Apache 2.4, <RequireAny>): a request is allowed if ANY of
+# these holds:
+#   1. Require valid-user       -> browser/dashboard and API GETs via Basic
+#                                  Auth (.htpasswd user/password).
+#   2. Require env HAS_BEARER   -> the request carries an
+#                                  "Authorization: Bearer <token>" header.
+#                                  Apache lets it reach PHP, and PHP ALWAYS
+#                                  validates the token (reads: check_read(),
+#                                  writes: check_bearer()). An invalid token
+#                                  still gets a 401 from PHP. Static files
+#                                  carry no data: everything that exposes
+#                                  data goes through metrics.php.
+#   3. Require method POST/DELETE -> collector writes (Bearer token checked
+#                                  by PHP). POST and DELETE never need Basic
+#                                  Auth.
+#
+# WARNING: with Apache 2.2 (no mod_authz_core) the <RequireAny> block is
+# skipped and plain Basic Auth applies to everything. In that case, to let
+# the collector read with the Bearer token, rely on the BASIC_AUTH check in
+# config.php to protect the API GETs (see README/TECH).
+# ---------------------------------------------------------------------------
+
+AuthType Basic
+AuthName "KPI Dashboard"
+AuthUserFile __AUTH_USER_FILE__
+
+# Any request whose Authorization header starts with "Bearer " is let through
+# Apache so PHP can validate the token (collector reads + writes).
+SetEnvIf Authorization "^Bearer\s+" HAS_BEARER
+
+<IfModule mod_authz_core.c>
+    # Apache 2.4
+    <RequireAny>
+        Require valid-user
+        Require env HAS_BEARER
+        Require method POST
+        Require method DELETE
+    </RequireAny>
+</IfModule>
+
+<IfModule !mod_authz_core.c>
+    # Apache 2.2 fallback (see warning above)
+    Require valid-user
+</IfModule>
+
+# The generated .htpasswd lives in this same folder (next to this file), so
+# explicitly refuse to serve it - and any other .ht*/example.htaccess file -
+# to clients.
+<FilesMatch "^(\.ht|example\.htaccess)">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order deny,allow
+        Deny from all
+    </IfModule>
+</FilesMatch>

@@ -22,6 +22,8 @@ Your remote folder after the deploy:
 …/dashboard/               <- "APP_DIR" in this guide (webroot of the app)
 ├── index.html             # compiled Vue frontend
 ├── assets/…               # hashed JS/CSS bundles
+├── example.htaccess       # ⭐ Basic Auth TEMPLATE (copied to .htaccess by
+│                          #    first_setup.php with the real AuthUserFile)
 ├── first_setup.php        # ⭐ one-time bootstrap — run it ONCE (step 1)
 ├── api/
 │   ├── .htaccess          # rewrites /api/* → metrics.php
@@ -40,13 +42,14 @@ excludes them, so **no later release can override or delete them**:
 | Server-owned file | Created by | Holds |
 |---|---|---|
 | `data/config.php` | `first_setup.php` | `API_TOKEN` (Bearer), DB path |
-| `data/.htpasswd` | `first_setup.php` | viewer (Basic Auth) credentials |
-| `.htaccess` (root) | `first_setup.php` | Basic Auth + real `AuthUserFile` path |
+| `.htpasswd` | `first_setup.php` | viewer (Basic Auth) credentials — same folder as `.htaccess` |
+| `.htaccess` (root) | `first_setup.php` | Basic Auth, **copied from `example.htaccess`** with the real `AuthUserFile` path |
 | `data/kpi.sqlite` | `first_setup.php` | the **live** database (metrics + data points) |
 
 Because the root `.htaccess` doesn't exist until `first_setup.php` runs, run
 it **right after the first deploy** (there is nothing on the server yet, so
-the short unprotected window is harmless).
+the short unprotected window is harmless). The deployed `example.htaccess`
+is just a template and is not active on its own.
 
 ---
 
@@ -75,8 +78,10 @@ curl -X POST https://your-domain.com/dashboard/first_setup.php \
 **What it does, in order:**
 
 1. validates the input (user non-empty, password ≥ 8 chars),
-2. writes `data/.htpasswd` (bcrypt hash of `user:pass`),
-3. writes the root `.htaccess` with `AuthUserFile` → `data/.htpasswd`,
+2. writes `.htpasswd` (bcrypt hash of `user:pass`) **next to the `.htaccess`**
+   (app root),
+3. copies `example.htaccess` → `.htaccess`, replacing the `__AUTH_USER_FILE__`
+   placeholder with the **absolute path of that same-folder `.htpasswd`**,
 4. seeds `data/kpi.sqlite` from `data/seed.sqlite` — **only if the live DB
    is missing or empty** (existing data is never touched),
 5. writes `data/config.php` **last**, with the real `API_TOKEN`.
@@ -102,7 +107,8 @@ and 7 days of history**, so the dashboard is immediately populated.
 - A second **POST** returns `HTTP 409 already initialized` and changes
   nothing — the token, `.htpasswd`, `.htaccess` and live DB are preserved.
 - Later deploys can never override these files (they aren't uploaded and are
-  excluded), so the setup is stable for the life of the server.
+  excluded); they only refresh the `example.htaccess` template, so the setup
+  is stable for the life of the server.
 
 To check status:
 
@@ -212,9 +218,10 @@ step 1 (`alice` / your password), and you should see the gauges + history.
 
 ## Checklist
 
-- [ ] First FTPS deploy done (bundle includes `first_setup.php` + `data/seed.sqlite`)
+- [ ] First FTPS deploy done (bundle includes `first_setup.php` +
+      `example.htaccess` + `data/seed.sqlite`)
 - [ ] `first_setup.php` POSTed once → got the `API_TOKEN` (saved!)
-- [ ] `data/` writable by PHP (the script creates files there)
+- [ ] `data/` **and the app root** writable by PHP (the script creates files in both)
 - [ ] `GET $BASE/api/config` works with the Bearer token → shows the 5 seeded metrics
 - [ ] Dashboard opens in a browser with the `.htpasswd` user/password
 - [ ] First real snapshot posted (or test seed data is fine)
