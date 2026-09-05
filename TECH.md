@@ -500,9 +500,12 @@ content of the remote deploy folder and then uploads it in **one FTPS pass**
     └── seed.sqlite          # seed for new installs (copied -> kpi.sqlite once)
 ```
 
-**Server-owned files** (never uploaded; generated once by `first_setup.php`,
-and additionally listed in the deploy step's `exclude` so the FTPS action can
-never overwrite or delete them):
+**Server-owned files** (never uploaded; generated once by `first_setup.php`).
+They are not part of the release bundle, so they never enter the FTPS
+action's sync-state file and can never be overwritten or deleted by a
+deploy. (`data/config.php` and `data/kpi.sqlite` are also listed in the
+deploy `exclude` as extra belt-and-suspenders; `.htaccess`/`.htpasswd` must
+NOT be added there as bare names, see 8.7):
 
 ```text
 dashboard/
@@ -534,12 +537,15 @@ Secrets and variables required in the repository
 
 Note: the four server-owned files (`.htaccess`, `.htpasswd`,
 `data/config.php`, `data/kpi.sqlite`) are **never uploaded** — `.htaccess` is
-generated once by `first_setup.php` from the deployed `example.htaccess`, and
-all four are listed in the deploy step's `exclude`, so the FTPS sync can
-never overwrite or delete them. The dev-only `deploy/router.php` is not
-uploaded either. To rotate the token or change the viewer password,
-regenerate on the server (delete `data/config.php`, `.htaccess`, `.htpasswd`
-and re-run `first_setup.php`, or edit the files directly).
+generated once by `first_setup.php` from the deployed `example.htaccess`.
+They are not in the release bundle, so the FTPS action never has them in its
+sync-state and can never overwrite or delete them (`.htaccess`/`.htpasswd`
+are deliberately **not** added to the deploy `exclude`: the action matches
+bare names at any depth, which would also exclude `api/.htaccess` and
+`data/.htaccess`). The dev-only `deploy/router.php` is not uploaded either.
+To rotate the token or change the viewer password, regenerate on the server
+(delete `data/config.php`, `.htaccess`, `.htpasswd` and re-run
+`first_setup.php`, or edit the files directly).
 
 ---
 

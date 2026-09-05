@@ -36,8 +36,9 @@ Your remote folder after the deploy:
 ```
 
 The deploy **deliberately never uploads** these four files — they are
-server-owned and created **once** by `first_setup.php`; the workflow also
-excludes them, so **no later release can override or delete them**:
+server-owned and created **once** by `first_setup.php`, and they are never
+part of the deployed bundle (so they are never in the FTPS action's
+sync-state and can never be overridden or deleted by a later release):
 
 | Server-owned file | Created by | Holds |
 |---|---|---|
@@ -106,9 +107,10 @@ and 7 days of history**, so the dashboard is immediately populated.
 - **GET** on `first_setup.php` only shows a status (no changes).
 - A second **POST** returns `HTTP 409 already initialized` and changes
   nothing — the token, `.htpasswd`, `.htaccess` and live DB are preserved.
-- Later deploys can never override these files (they aren't uploaded and are
-  excluded); they only refresh the `example.htaccess` template, so the setup
-  is stable for the life of the server.
+- Later deploys can never override these files (they aren't uploaded and
+  never enter the FTPS action's sync-state, so they are never touched); they
+  only refresh the `example.htaccess` template, so the setup is stable for
+  the life of the server.
 - **The auth files cannot be downloaded.** The generated `.htaccess` refuses
   to serve itself, `.htpasswd` and `example.htaccess` over HTTP (a
   `<FilesMatch>` deny **plus** a `mod_rewrite` `403`), so the viewer

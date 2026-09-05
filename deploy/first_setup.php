@@ -202,7 +202,7 @@ if ($hash === false) {
 if (@file_put_contents($htpasswd, $user . ':' . $hash . "\n") === false) {
     respond(500, "could not write '$htpasswd'");
 }
-@chmod($htpasswd, 0640);
+@chmod($htpasswd, 0644);
 
 // ---------------------------------------------------------------------
 // 2) root .htaccess  (copied from the deployed example.htaccess template)
