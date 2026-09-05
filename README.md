@@ -12,13 +12,13 @@ business metric defaults in the code**.
 ## Architecture
 
 ```
-Collector ──(daily, POST Bearer)──▶ PHP API + SQLite
+Collector ──(daily, Bearer: POST + GET)──▶ PHP API + SQLite
   gathers data                     (shared hosting, no SSH)
-                                   GET  /api/config            (setup)
+                                   GET  /api/config            (setup; Basic or Bearer)
                                    POST /api/config/metrics    (create/update a metric)
                                    DELETE /api/config/metrics/{key} (delete a metric)
                                    POST /api/metrics           (daily snapshot)
-                                   GET  /api/metrics/*         (data)
+                                   GET  /api/metrics/*         (data; Basic or Bearer)
                                    Static dashboard (Vue)
 ```
 
@@ -30,7 +30,8 @@ Collector ──(daily, POST Bearer)──▶ PHP API + SQLite
   - `data/config.php` — **deployment secrets only** (`API_TOKEN`, `DB_PATH`,
     optional Basic credentials, generic fallback title). **No metrics.**
   - `data/.htaccess` — blocks access to `data/`
-  - `.htaccess` — Basic Auth for dashboard + GET API (writes exempted)
+  - `.htaccess` — Basic Auth for dashboard + GET API, with the Bearer token
+    also allowed through for API reads/writes (validated by PHP)
 - **`frontend/`** — **Vue 3 + Vite + Chart.js** app, build only locally:
   `npm install && npm run build` → upload the content of `dist/` to the
   webroot. It contains no hardcoded metric: it loads the setup from
@@ -57,12 +58,12 @@ credentials and a generic fallback title/subtitle (used before any
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | POST | `/api/config` | `Authorization: Bearer <API_TOKEN>` | Set the dashboard **title/subtitle** (metrics are NOT accepted here) |
-| GET | `/api/config` | Basic Auth | Read the active setup: title, subtitle, all metrics |
+| GET | `/api/config` | Basic Auth **or** `Authorization: Bearer` | Read the active setup: title, subtitle, all metrics |
 | POST | `/api/config/metrics` | `Authorization: Bearer <API_TOKEN>` | Create or update **one metric** (upsert by key) |
 | DELETE | `/api/config/metrics/{key}` | `Authorization: Bearer <API_TOKEN>` | Delete a metric |
 | POST | `/api/metrics` | `Authorization: Bearer <API_TOKEN>` | Save/replace the daily snapshot (idempotent per date) |
-| GET | `/api/metrics/latest` | Basic Auth | Latest snapshot for the gauges |
-| GET | `/api/metrics?from=YYYY-MM-DD&to=YYYY-MM-DD` | Basic Auth | History (default last 30 days) |
+| GET | `/api/metrics/latest` | Basic Auth **or** `Authorization: Bearer` | Latest snapshot for the gauges |
+| GET | `/api/metrics?from=YYYY-MM-DD&to=YYYY-MM-DD` | Basic Auth **or** `Authorization: Bearer` | History (default last 30 days) |
 
 The server **always recomputes** scores (0–100) and the aggregate index from
 the raw values using the thresholds and weights of the **active**
@@ -175,8 +176,12 @@ examples use:
 ```bash
 BASE=https://your-domain.com/dashboard     # or the webroot base if installed at /
 TOKEN='YOUR_BEARER_TOKEN'                 # handed over by the operator (API_TOKEN in config.php)
-USER='user'; PASS='password'              # Basic Auth credentials for the GETs
+USER='user'; PASS='password'              # optional: Basic Auth credentials (human/browser reads)
 ```
+
+> **Auth**: the collector uses its Bearer token for **everything** (writes
+> *and* reads). Basic credentials are only needed if you read from a browser
+> or prefer Basic over Bearer on GET.
 
 ### 1) Create/update the metrics you track
 
@@ -195,12 +200,14 @@ curl -X POST "$BASE/api/config/metrics" \
 
 ### 2) Read the configuration (what to send)
 
-`GET /api/config` (Basic Auth) returns the **active** configuration: the
-client reads it to know **which keys** to use in the snapshot POST and **how**
-they will be evaluated.
+`GET /api/config` returns the **active** configuration: the client reads it
+to know **which keys** to use in the snapshot POST and **how** they will be
+evaluated. Reads accept the **same Bearer token** used for writes (or Basic
+credentials):
 
 ```bash
-curl -u "$USER:$PASS" "$BASE/api/config"
+curl -H "Authorization: Bearer $TOKEN" "$BASE/api/config"   # collector
+# or:  curl -u "$USER:$PASS" "$BASE/api/config"             # Basic
 ```
 
 Meaning of each metric field:
@@ -256,15 +263,20 @@ added.
 
 ### 5) Read the data (to verify or for the collector)
 
+The collector can use the same Bearer token to verify what was stored:
+
 ```bash
 # Latest snapshot (for the gauges)
-curl -u "$USER:$PASS" "$BASE/api/metrics/latest"
+curl -H "Authorization: Bearer $TOKEN" "$BASE/api/metrics/latest"
 
 # History — default last 30 days
-curl -u "$USER:$PASS" "$BASE/api/metrics"
+curl -H "Authorization: Bearer $TOKEN" "$BASE/api/metrics"
 
 # Custom history
-curl -u "$USER:$PASS" "$BASE/api/metrics?from=2026-08-01&to=2026-08-24"
+curl -H "Authorization: Bearer $TOKEN" "$BASE/api/metrics?from=2026-08-01&to=2026-08-24"
+
+# Basic credentials also work on all GETs (humans/browsers):
+#   curl -u "$USER:$PASS" "$BASE/api/metrics/latest"
 ```
 
 Every returned metric includes `value` (raw), `score` (0–100) and `zone`
@@ -353,10 +365,11 @@ overrides `DEPLOY_DIR`. Details: see **`TECH.md` §8.7**.
 6. **Smoke test**:
 
 ```bash
-# Setup (Basic Auth)
-curl -u user:password https://example.com/dashboard/api/config
+# Setup: read config with the Bearer token (feeder/operator)
+curl -H "Authorization: Bearer YOUR_TOKEN" https://example.com/dashboard/api/config
 
-# Protected GET (Basic Auth)
+# Read latest with the token (feeder/operator) or Basic (human)
+curl -H "Authorization: Bearer YOUR_TOKEN" https://example.com/dashboard/api/metrics/latest
 curl -u user:password https://example.com/dashboard/api/metrics/latest
 
 # Create a test metric (Bearer)
@@ -370,13 +383,15 @@ curl -X POST https://example.com/dashboard/api/metrics \
   -d '{"date":"2026-08-25","metrics":{"orders":1},"index":0}'
 ```
 
-**Note on Basic Auth and writes**: the root `.htaccess` protects the
-dashboard and the GETs but **exempts POST and DELETE** (`<RequireAny> …`
-`Require method POST`, `Require method DELETE`), because writes use the
-Bearer token. If the collector cannot POST/DELETE (Apache 2.2), move the root
-`.htaccess` into a subfolder that contains only the dashboard and set
-`BASIC_AUTH_USER`/`BASIC_AUTH_PASS` in `config.php` (the API GETs will then
-be protected by PHP itself).
+**Note on Basic Auth, Bearer reads and writes**: the root `.htaccess`
+protects the dashboard with Basic Auth but lets requests through when they
+carry a **Bearer token** (`Require env HAS_BEARER`) or use **POST/DELETE**
+(`<RequireAny>`), because the API is protected by PHP, which validates the
+token (`check_read()` on GETs, `check_bearer()` on POST/DELETE). An invalid
+token therefore still gets a `401` from PHP. If the host is Apache 2.2 (no
+`<RequireAny>`), move the root `.htaccess` into a subfolder that contains
+only the dashboard and set `BASIC_AUTH_USER`/`BASIC_AUTH_PASS` in
+`config.php` (the API GETs will then be protected by PHP itself).
 
 ## Formula notes
 

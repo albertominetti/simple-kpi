@@ -3,13 +3,13 @@
  * KPI Dashboard — metrics API (complete backend).
  *
  * Endpoints:
- *   GET    /api/config                     Read the active setup (Basic Auth).
+ *   GET    /api/config                     Read the active setup (Basic or Bearer).
  *   POST   /api/config                     Update title/subtitle (Bearer token).
  *   POST   /api/config/metrics             Create or update a metric (Bearer token).
  *   DELETE /api/config/metrics/{key}       Delete a metric (Bearer token).
  *   POST   /api/metrics                    Save a daily snapshot (Bearer token).
- *   GET    /api/metrics/latest             Latest snapshot (Basic Auth).
- *   GET    /api/metrics?from=&to=          History (Basic Auth, default 30 days).
+ *   GET    /api/metrics/latest             Latest snapshot (Basic or Bearer).
+ *   GET    /api/metrics?from=&to=          History (Basic or Bearer, default 30 days).
  *
  * Dependencies: none (PHP 7.4+/8.x + PDO_SQLITE). No framework.
  *
@@ -290,6 +290,31 @@ function check_basic(): void
     // Otherwise authentication is already enforced by the .htaccess (Apache).
 }
 
+/**
+ * Authentication for READS (GET). Accepts EITHER:
+ *   1. a valid Bearer token (API_TOKEN)  -> the collector/feeder can inspect
+ *      the configuration and verify published snapshots with the same token
+ *      it uses for writes (no Basic credentials needed), or
+ *   2. HTTP Basic Auth (as before): the .htaccess enforces it for GETs and,
+ *      if BASIC_AUTH_USER/PASS are set in config.php, PHP checks them too.
+ */
+function check_read(): void
+{
+    $headers = function_exists('getallheaders') ? getallheaders() : [];
+    $auth = $headers['Authorization'] ?? ($_SERVER['HTTP_AUTHORIZATION'] ?? '');
+
+    // Case 1: the request carries a Bearer token -> validate it (constant time).
+    if (is_string($auth) && preg_match('/^Bearer\s+(.+)$/i', trim($auth), $m)) {
+        if (hash_equals(API_TOKEN, $m[1])) {
+            return;
+        }
+        json_response(['error' => 'unauthorized'], 401);
+    }
+
+    // Case 2: no Bearer token -> HTTP Basic Auth.
+    check_basic();
+}
+
 /* ------------------------------------------------------------------ *
  *  Validation helpers
  * ------------------------------------------------------------------ */
@@ -396,7 +421,7 @@ function zone(float $score): string
  * ------------------------------------------------------------------ */
 function handle_config(): void
 {
-    check_basic();
+    check_read();
     json_response(active_config());
 }
 
@@ -584,7 +609,7 @@ function handle_post(): void
 
 function handle_latest(): void
 {
-    check_basic();
+    check_read();
     $pdo = db();
 
     $snap = $pdo->query('SELECT date, aggregate, zone FROM snapshot ORDER BY date DESC LIMIT 1')->fetch();
@@ -620,7 +645,7 @@ function handle_latest(): void
 
 function handle_history(): void
 {
-    check_basic();
+    check_read();
 
     $from = isset($_GET['from']) ? (string) $_GET['from'] : '';
     $to   = isset($_GET['to'])   ? (string) $_GET['to']   : '';

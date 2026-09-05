@@ -59,29 +59,35 @@
   <p>The app may be installed in the webroot or under a subfolder (default deployment: <code>/dashboard/</code>). All API paths below are relative to that base:</p>
   <pre><code>BASE = https://your-domain.com/dashboard     # if deployed at the webroot: https://your-domain.com</code></pre>
 
-  <p>Two independent authentication modes (never mixed):</p>
+  <p>Two authentication modes, used as follows:</p>
   <table>
     <tr><th>Mode</th><th>Used for</th><th>Header</th></tr>
-    <tr><td><span class="tag auth">Bearer</span></td><td>All <b>writes</b>: POST config, POST/DELETE metrics config, POST snapshots</td><td><code>Authorization: Bearer &lt;API_TOKEN&gt;</code></td></tr>
-    <tr><td><span class="tag get">Basic</span></td><td>All <b>reads</b>: GET config, GET latest, GET history</td><td><code>Authorization: Basic &lt;base64(user:pass)&gt;</code> (or <code>-u user:pass</code>)</td></tr>
+    <tr><td><span class="tag auth">Bearer</span></td><td>All <b>writes</b> (POST config, POST/DELETE metrics config, POST snapshots) <b>and reads</b> (GET config, GET latest, GET history) &mdash; the collector/feeder uses its token for everything</td><td><code>Authorization: Bearer &lt;API_TOKEN&gt;</code></td></tr>
+    <tr><td><span class="tag get">Basic</span></td><td>Reads only, for humans/browsers: GET config, GET latest, GET history</td><td><code>Authorization: Basic &lt;base64(user:pass)&gt;</code> (or <code>-u user:pass</code>)</td></tr>
   </table>
+  <p class="note">
+    <b>Reads accept either mode</b>: a valid Bearer token <b>or</b> Basic credentials. Writes
+    always require the Bearer token. A GET without a valid token/credentials returns <code>401</code>.
+  </p>
   <pre><code># write example
 curl -X POST "$BASE/api/config/metrics" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{...}'
 
-# read example
-curl -u "$USER:$PASS" "$BASE/api/config"</code></pre>
+# read examples: the SAME token works for reads too (no Basic needed)
+curl -H "Authorization: Bearer $TOKEN" "$BASE/api/config"
+curl -H "Authorization: Bearer $TOKEN" "$BASE/api/metrics/latest"
+curl -u "$USER:$PASS" "$BASE/api/config"        # or with Basic credentials</code></pre>
 
   <h2>3 · Endpoints summary</h2>
   <table>
     <tr><th>Method</th><th>Path</th><th>Auth</th><th>Purpose</th></tr>
-    <tr><td><span class="tag get">GET</span></td><td class="mono">/api/config</td><td>Basic</td><td>Read the active setup (title, subtitle, all metrics)</td></tr>
+    <tr><td><span class="tag get">GET</span></td><td class="mono">/api/config</td><td>Basic or Bearer</td><td>Read the active setup (title, subtitle, all metrics)</td></tr>
     <tr><td><span class="tag post">POST</span></td><td class="mono">/api/config</td><td>Bearer</td><td>Set <b>only</b> title/subtitle (metrics are NOT accepted here)</td></tr>
     <tr><td><span class="tag post">POST</span></td><td class="mono">/api/config/metrics</td><td>Bearer</td><td>Create or update <b>one</b> metric (upsert by key)</td></tr>
     <tr><td><span class="tag delete">DELETE</span></td><td class="mono">/api/config/metrics/{key}</td><td>Bearer</td><td>Delete a metric</td></tr>
     <tr><td><span class="tag post">POST</span></td><td class="mono">/api/metrics</td><td>Bearer</td><td>Save/replace the daily snapshot</td></tr>
-    <tr><td><span class="tag get">GET</span></td><td class="mono">/api/metrics/latest</td><td>Basic</td><td>Latest snapshot (gauges)</td></tr>
-    <tr><td><span class="tag get">GET</span></td><td class="mono">/api/metrics?from=&amp;to=</td><td>Basic</td><td>History (default last 30 days)</td></tr>
+    <tr><td><span class="tag get">GET</span></td><td class="mono">/api/metrics/latest</td><td>Basic or Bearer</td><td>Latest snapshot (gauges)</td></tr>
+    <tr><td><span class="tag get">GET</span></td><td class="mono">/api/metrics?from=&amp;to=</td><td>Basic or Bearer</td><td>History (default last 30 days)</td></tr>
   </table>
 
   <h2>4 · Metric definition (the only configuration you need to understand)</h2>
@@ -110,7 +116,7 @@ curl -u "$USER:$PASS" "$BASE/api/config"</code></pre>
 
   <h2>5 · Suggested workflow for an agent / collector</h2>
   <div class="card">
-    <p><b>0) Authenticate.</b> You need a Bearer token (operator-provided) for writes and Basic credentials for reads.</p>
+    <p><b>0) Authenticate.</b> You need the operator-provided Bearer token. Use it for writes <b>and</b> reads; reads also accept Basic credentials (humans).</p>
     <p><b>1) Inspect</b> the current setup: <code>GET /api/config</code>. It returns <code>{"title":…,"subtitle":…,"metrics":{"key":{name,why,G,Y,O,weight},…}}</code>.</p>
     <p><b>2) Create/update each metric</b> you want to track with <code>POST /api/config/metrics</code> (repeat per metric). Re-POSTing the same key updates it; the frontend adapts automatically.</p>
     <p><b>3) (Optional) set the dashboard title/subtitle</b> with <code>POST /api/config</code>.</p>
@@ -121,8 +127,11 @@ curl -u "$USER:$PASS" "$BASE/api/config"</code></pre>
   <h2>6 · Endpoint details</h2>
 
   <h3><span class="tag get">GET</span> <code>/api/config</code> — read the active setup</h3>
-  <p>Auth: <span class="tag auth">Basic</span>. Returns the title/subtitle and every configured metric.</p>
-  <pre><code>curl -u "$USER:$PASS" "$BASE/api/config"
+  <p>Auth: <span class="tag auth">Basic</span> or <span class="tag auth">Bearer</span>. Returns the title/subtitle and every configured metric.</p>
+  <pre><code># with the collector token (recommended for agents/feeders)
+curl -H "Authorization: Bearer $TOKEN" "$BASE/api/config"
+# or with Basic credentials (humans)
+curl -u "$USER:$PASS" "$BASE/api/config"
 
 200 {
   "title": "Production Dashboard",
@@ -169,11 +178,14 @@ curl -u "$USER:$PASS" "$BASE/api/config"</code></pre>
   “no metrics configured yet: create them first with POST /api/config/metrics”.</p>
 
   <h3><span class="tag get">GET</span> <code>/api/metrics/latest</code> — latest snapshot</h3>
-  <p>Auth: <span class="tag auth">Basic</span>. Used by the dashboard gauges. Contains <code>date</code>, <code>index</code>, <code>zone</code> and per-metric <code>{value, score, zone}</code>.</p>
+  <p>Auth: <span class="tag auth">Basic</span> or <span class="tag auth">Bearer</span>. Used by the dashboard gauges. Contains <code>date</code>, <code>index</code>, <code>zone</code> and per-metric <code>{value, score, zone}</code>.</p>
 
   <h3><span class="tag get">GET</span> <code>/api/metrics?from=&amp;to=</code> — history</h3>
-  <p>Auth: <span class="tag auth">Basic</span>. Optional <code>from</code>/<code>to</code> (<code>YYYY-MM-DD</code>); default = last 30 days (inclusive). Returns a chronological array of daily snapshots.</p>
-  <pre><code>curl -u "$USER:$PASS" "$BASE/api/metrics?from=2026-08-01&amp;to=2026-08-24"</code></pre>
+  <p>Auth: <span class="tag auth">Basic</span> or <span class="tag auth">Bearer</span>. Optional <code>from</code>/<code>to</code> (<code>YYYY-MM-DD</code>); default = last 30 days (inclusive). Returns a chronological array of daily snapshots.</p>
+  <pre><code># with the collector token
+curl -H "Authorization: Bearer $TOKEN" "$BASE/api/metrics?from=2026-08-01&amp;to=2026-08-24"
+# or with Basic credentials
+curl -u "$USER:$PASS" "$BASE/api/metrics?from=2026-08-01&amp;to=2026-08-24"</code></pre>
 
   <h2>7 · Errors &amp; conventions</h2>
   <table>

@@ -1,22 +1,41 @@
-# Basic Auth for the dashboard (and for the API GETs).
+# Basic Auth for the dashboard/GETs + Bearer-token access for the API.
 # Copied to dist/ by Vite: upload it to the webroot together with dist/.
 #
-# Writes (POST /api/metrics, POST /api/config, POST /api/config/metrics,
-# DELETE /api/config/metrics/{key}) use the Bearer token and must NOT require
-# Basic Auth: with Apache 2.4 <RequireAny> + "Require method POST/DELETE" we
-# exempt them. On Apache 2.2 move this file into a subfolder that contains
-# only the dashboard (the API GETs will then be protected by BASIC_AUTH in
-# config.php).
+# Apache 2.4 <RequireAny>: a request is allowed if ANY of these holds:
+#   1. Require valid-user  -> browser/dashboard + API GETs (Basic Auth).
+#   2. Require env HAS_BEARER -> the request carries "Authorization: Bearer
+#      <token>" (the collector/operator token). Apache lets it reach PHP,
+#      which ALWAYS validates the token (reads: check_read(), writes:
+#      check_bearer()). An invalid token still gets a 401 from PHP.
+#   3. Require method POST/DELETE -> collector writes (Bearer token, checked
+#      by PHP). POST/DELETE never need Basic Auth.
+#
+# Static files (index.html/assets) contain no data; everything that exposes
+# data goes through metrics.php which enforces auth.
+#
+# Apache 2.2: no mod_authz_core -> plain Basic Auth applies to everything.
+# To let the collector read with the Bearer token on 2.2, move this file into
+# a subfolder that contains ONLY the dashboard and rely on the BASIC_AUTH
+# check in config.php to protect the API GETs.
 
 AuthType Basic
 AuthName "KPI Dashboard"
 AuthUserFile /path/on/server/.htpasswd
-Require valid-user
+
+# Any request whose Authorization header starts with "Bearer " is let through
+# Apache so PHP can validate the token (collector reads + writes).
+SetEnvIf Authorization "^Bearer\s+" HAS_BEARER
 
 <IfModule mod_authz_core.c>
     <RequireAny>
         Require valid-user
+        Require env HAS_BEARER
         Require method POST
         Require method DELETE
     </RequireAny>
+</IfModule>
+
+<IfModule !mod_authz_core.c>
+    # Apache 2.2 fallback (see note above)
+    Require valid-user
 </IfModule>

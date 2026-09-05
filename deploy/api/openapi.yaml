@@ -7,9 +7,10 @@ info:
     are NO hardcoded/business metric defaults in the code. The dashboard
     title/subtitle are stored in a single-row `config` table.
 
-    Two auth modes: Bearer token for writes (POST/DELETE), HTTP Basic for
-    reads (GET). All paths below are relative to the app base (e.g.
-    https://host/dashboard when deployed under /dashboard/).
+    Two auth modes: a Bearer token for writes (POST/DELETE); reads (GET)
+    accept the SAME Bearer token OR HTTP Basic credentials. All paths below
+    are relative to the app base (e.g. https://host/dashboard when deployed
+    under /dashboard/).
 
     Human-readable companion page: HELP.html (same folder).
   version: 1.0.0
@@ -34,6 +35,7 @@ paths:
       summary: Read the active setup (title, subtitle, all metrics)
       security:
         - basicAuth: []
+        - bearerAuth: []
       responses:
         '200':
           description: Active configuration
@@ -136,6 +138,7 @@ paths:
       summary: Daily history (default last 30 days)
       security:
         - basicAuth: []
+        - bearerAuth: []
       parameters:
         - name: from
           in: query
@@ -206,6 +209,7 @@ paths:
       summary: Latest snapshot (for the gauges)
       security:
         - basicAuth: []
+        - bearerAuth: []
       responses:
         '200':
           description: Latest snapshot (null fields when no data yet)
@@ -227,11 +231,11 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      description: "API_TOKEN (writes). Header: Authorization: Bearer <API_TOKEN>"
+      description: "API_TOKEN. Header: Authorization: Bearer <API_TOKEN>. Required for writes (POST/DELETE); also accepted for reads (GET)."
     basicAuth:
       type: http
       scheme: basic
-      description: Basic credentials configured for reads
+      description: "Basic credentials configured for reads (GET). Either this or a valid Bearer token is accepted on GET endpoints."
 
   schemas:
     Config:

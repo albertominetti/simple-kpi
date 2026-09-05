@@ -1,33 +1,48 @@
 # ---------------------------------------------------------------------------
-# Basic Auth for the dashboard (and for the API GETs).
+# Basic Auth for the dashboard/GETs + Bearer-token access for the API.
 #
-# WARNING (important):
-#   Writes (POST /api/metrics, POST /api/config, POST /api/config/metrics,
-#   DELETE /api/config/metrics/{key}) use the collector's Bearer token and
-#   must NOT require Basic Auth. With Apache 2.4 this .htaccess protects
-#   everything except POST and DELETE requests (see <RequireAny> below).
+# Access control (Apache 2.4, <RequireAny>): a request is allowed if ANY of
+# these holds:
+#   1. Require valid-user  -> the browser/dashboard and API GETs via Basic Auth
+#                             (.htpasswd user/password).
+#   2. Require env HAS_BEARER -> the request carries an
+#                             "Authorization: Bearer <token>" header. This is
+#                             the collector/operator token: Apache lets the
+#                             request reach PHP, and PHP ALWAYS validates the
+#                             token (reads: check_read(), writes:
+#                             check_bearer()). An invalid token still gets 401
+#                             from PHP. Static files (index.html/assets) carry
+#                             no data: everything that exposes data goes
+#                             through metrics.php, which enforces auth.
+#   3. Require method POST/DELETE -> collector writes (Bearer token checked by
+#                             PHP). POST and DELETE never need Basic Auth.
 #
-#   If the host uses Apache 2.2 or the collector cannot POST/DELETE, move this
-#   file into a subfolder that contains ONLY the dashboard (e.g.
-#   /dashboard/.htaccess) and leave /api/ without Basic Auth: the API GETs
-#   will then be protected by the BASIC_AUTH check in config.php.
+# WARNING: with Apache 2.2 (no mod_authz_core) the <RequireAny> block is
+# skipped and plain Basic Auth applies to everything. In that case, to let the
+# collector read with the Bearer token, move this file into a subfolder that
+# contains ONLY the dashboard and rely on the BASIC_AUTH check in config.php
+# to protect the API GETs.
 # ---------------------------------------------------------------------------
 
 AuthType Basic
 AuthName "KPI Dashboard"
 AuthUserFile /path/on/server/.htpasswd
-Require valid-user
 
-# Apache 2.4: allows POST and DELETE requests without Basic Auth (they use
-# the Bearer token, checked by PHP).
+# Any request whose Authorization header starts with "Bearer " is let through
+# Apache so PHP can validate the token (collector reads + writes).
+SetEnvIf Authorization "^Bearer\s+" HAS_BEARER
+
 <IfModule mod_authz_core.c>
+    # Apache 2.4
     <RequireAny>
         Require valid-user
+        Require env HAS_BEARER
         Require method POST
         Require method DELETE
     </RequireAny>
 </IfModule>
 
-# Apache 2.2 fallback: if it does not support "RequireAny", POST/DELETE would
-# also require Basic Auth. In that case move this file into a subfolder as
-# explained above.
+<IfModule !mod_authz_core.c>
+    # Apache 2.2 fallback (see warning above)
+    Require valid-user
+</IfModule>

@@ -40,22 +40,22 @@ hardcoded metric, everything comes from the backend via `GET /api/config`.
 ## 2. Architecture
 
 ```
-┌───────────────┐  POST /api/config            ┌───────────────────────────────┐
-│  Client       │  POST /api/config/metrics    │  PHP API + SQLite (hosting)   │
-│  (collector)  │  DELETE /api/config/metrics/…│                                │
-│               │  POST /api/metrics (Bearer)  │  - metrics.php (the whole     │
-│  gathers data │ ────────────────────────────▶│    backend, routing included) │
-│  from sources │                              │  - data/kpi.sqlite            │
-│               │  GET /api/config (Basic)     │  - data/config.php (secrets)  │
-│               │  GET /api/metrics/* (Basic)  │  - .htaccess (rewrite/auth)   │
-│               │ ◀────────────────────────────│  - api/HELP.html + openapi.yaml
-└───────────────┘                              └───────────────┬───────────────┘
-                                                               │ GET (Basic Auth)
-                                                       ┌───────▼────────┐
-                                                       │  Browser       │
-                                                       │  static Vue    │
-                                                       │  (dist/)       │
-                                                       └────────────────┘
+┌──────────────────┐   writes (Bearer): POST /api/config,             ┌───────────────────────────┐
+│   Client/feeder  │   POST/DELETE /api/config/metrics,                │  PHP API + SQLite (host)  │
+│   (collector)    │   POST /api/metrics                               │  - metrics.php (backend,  │
+│                  │ ─────────────────────────────────────────────────▶│    routing included)      │
+│   gathers data   │   reads (Basic or Bearer):                        │  - data/kpi.sqlite        │
+│   from sources   │   GET /api/config, GET /api/metrics/latest,       │  - data/config.php (keys) │
+│                  │   GET /api/metrics?from=&to=                      │  - .htaccess (rewrite +   │
+│                  │                                                  │    auth: Basic/Bearer)    │
+└──────────────────┘                                                  │  - api/HELP.html + openapi│
+                                                                       └────────────┬──────────────┘
+                                                             GET /api/* (Basic or Bearer)  │
+                                                                                         ▼
+                                                                              ┌──────────────────────┐
+                                                                              │  Browser (static Vue, │
+                                                                              │  dist/ in the webroot)│
+                                                                              └──────────────────────┘
 ```
 
 - **Metric configuration** lives in the `config_metrics` table and is managed
@@ -79,12 +79,12 @@ hardcoded metric, everything comes from the backend via `GET /api/config`.
 | Method | Path | Auth | Function |
 |---|---|---|---|
 | POST | `/api/config` | Bearer | Set dashboard title/subtitle (only) |
-| GET | `/api/config` | Basic | Read the active setup (title/subtitle + all metrics) |
+| GET | `/api/config` | Basic or Bearer | Read the active setup (title/subtitle + all metrics) |
 | POST | `/api/config/metrics` | Bearer | Create or update one metric (upsert by key) |
 | DELETE | `/api/config/metrics/{key}` | Bearer | Delete a metric |
 | POST | `/api/metrics` | Bearer | Save/replace the daily snapshot |
-| GET | `/api/metrics/latest` | Basic | Latest snapshot (gauges) |
-| GET | `/api/metrics?from=&to=` | Basic | History (default last 30 days) |
+| GET | `/api/metrics/latest` | Basic or Bearer | Latest snapshot (gauges) |
+| GET | `/api/metrics?from=&to=` | Basic or Bearer | History (default last 30 days) |
 
 ### 3.2 Routing
 
@@ -99,20 +99,30 @@ The PHP built-in server (local development) does not process `.htaccess`:
 the file `deploy/router.php` (dev only) emulates the rewrite for the same set
 of endpoints.
 
-### 3.3 Authentication — two levels
+### 3.3 Authentication — two modes, enforced in PHP
 
-- **Writes (POST + DELETE)**: **Bearer token**, compared in constant time
-  with `hash_equals()` against `API_TOKEN` (in `config.php`). Prevents timing
-  attacks. The `Authorization` header is made available to PHP with
+- **Writes (POST + DELETE)**: always **Bearer token**, compared in constant
+  time with `hash_equals()` against `API_TOKEN` (in `config.php`) by
+  `check_bearer()`. Prevents timing attacks. The `Authorization` header is
+  made available to PHP with
   `SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1` in the `.htaccess`
   (essential on many shared CGI/FastCGI hosts).
-- **Reads (GET)**: **HTTP Basic Auth** managed by the root `.htaccess`
-  (`Require valid-user` + `.htpasswd`). As defence in depth, if
+- **Reads (GET)**: accept **either** a valid **Bearer token** (the same
+  `API_TOKEN`, checked by `check_read()`) **or** HTTP Basic Auth. Basic Auth
+  is managed by the root `.htaccess` (`Require valid-user` + `.htpasswd`)
+  for human/browser access; as defence in depth, if
   `BASIC_AUTH_USER`/`BASIC_AUTH_PASS` are set in `config.php`, PHP also
   verifies the credentials.
-- POST and DELETE are **exempted** from Basic Auth in the `.htaccess`
-  (`<RequireAny> Require valid-user / Require method POST /
-  Require method DELETE </RequireAny>`), because they use the Bearer token.
+- **Why reads accept the token**: the collector/feeder uses one credential
+  (its token) for everything — it can `GET /api/config` to discover the
+  active metrics and `GET /api/metrics/latest` / `GET /api/metrics` to
+  verify the published data points, without needing `.htpasswd` credentials.
+- The root `.htaccess` lets a request reach PHP when **any** of these holds
+  (Apache 2.4, `<RequireAny>`): a valid Basic user, a `Bearer`
+  Authorization header (`Require env HAS_BEARER`, set via `SetEnvIf`), or the
+  method is POST/DELETE. PHP is the real enforcer: an invalid token still
+  gets a `401`, so bypassing Apache with a fake `Bearer` header does not
+  expose any data.
 
 ### 3.4 Validations (all server-side)
 
@@ -336,9 +346,9 @@ configuration at snapshot time. The frontend uses directly the
 
 | Aspect | Implementation |
 |---|---|
-| Writes | Bearer token, `hash_equals` comparison (constant time) |
-| Reads | Basic Auth via `.htaccess` + optional PHP check |
-| POST/DELETE exemption | `<RequireAny>` with `Require method POST` and `Require method DELETE` (Apache 2.4) |
+| Writes | Bearer token (`check_bearer`), `hash_equals` comparison (constant time) |
+| Reads | Bearer token (`check_read`) **or** Basic Auth via `.htaccess` + optional PHP check |
+| Apache gate | `<RequireAny>` allows valid-user, `Bearer` header (`Require env HAS_BEARER`), POST and DELETE; PHP always validates the token/credentials |
 | `data/` | `.htaccess` with `Require all denied` (Apache 2.4) + `Deny from all` (2.2) and `<FilesMatch>` on php/sqlite/db |
 | Authorization header | `SetEnvIf` in the API `.htaccess` (CGI/FastCGI hosts) |
 | SQL injection | PDO prepared statements everywhere (no concatenation) |
@@ -469,7 +479,7 @@ prod workflow). The remote layout is:
 <FTP home>/dashboard/        <- default target (configurable)
 ├── index.html               # compiled SPA frontend (served to the browser)
 ├── assets/…                 # hashed JS/CSS
-├── .htaccess                # Basic Auth for GETs + POST/DELETE exemption
+├── .htaccess                # Basic Auth + Bearer-token pass-through (PHP validates)
 ├── api/
 │   ├── .htaccess            # rewrite config/config/metrics/metrics/... -> metrics.php
 │   ├── metrics.php          # the whole backend
