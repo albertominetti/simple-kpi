@@ -217,6 +217,23 @@ $generated = str_replace('__AUTH_USER_FILE__', $htpasswd, $tpl);
 if (strpos($generated, '__AUTH_USER_FILE__') !== false) {
     respond(500, 'internal error: example.htaccess placeholder __AUTH_USER_FILE__ was not replaced');
 }
+// Safety self-check: never activate an .htaccess that does not protect
+// .htaccess/.htpasswd from being downloaded. If a future template edit
+// removes these guards, setup must fail loudly instead of shipping an
+// unprotected (or path-less) file.
+foreach ([
+    'AuthUserFile ' . $htpasswd,      // the real absolute path was substituted
+    '<FilesMatch',                    // deny block present
+    'Require all denied',             // authz deny present (Apache 2.4)
+    'RewriteRule ^\.ht.* - [F,L]',    // rewrite 403 present (defence in depth)
+] as $needle) {
+    if (strpos($generated, $needle) === false) {
+        respond(500,
+            'internal error: generated .htaccess is missing required protection ('
+            . $needle . '); refusing to activate it'
+        );
+    }
+}
 if (@file_put_contents($htaccess, $generated) === false) {
     respond(500, "could not write '$htaccess'");
 }

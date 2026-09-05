@@ -57,15 +57,31 @@ SetEnvIf Authorization "^Bearer\s+" HAS_BEARER
     Require valid-user
 </IfModule>
 
-# The generated .htpasswd lives in this same folder (next to this file), so
-# explicitly refuse to serve it - and any other .ht*/example.htaccess file -
-# to clients.
-<FilesMatch "^(\.ht|example\.htaccess)">
+# ---------------------------------------------------------------------------
+# Hard deny: the browser must NEVER be able to download .htaccess, .htpasswd
+# (or this example template). Protection is layered so it does not rely on a
+# single Apache module:
+#   Layer 1 - <FilesMatch> deny (mod_authz_core, with a 2.2 fallback): any
+#             .ht* file and example.htaccess are refused. Case-insensitive,
+#             so it also covers .HTPASSWD/.HTACCESS on case-insensitive hosts.
+#   Layer 2 - mod_rewrite: direct HTTP requests to those names get an explicit
+#             403 Forbidden ([F]) - a second, independent gate.
+#   Layer 3 - Apache core: by default the server already refuses to serve
+#             files whose name matches AccessFileName (.htaccess); Layer 1/2
+#             extend the same protection to .htpasswd and example.htaccess.
+# ---------------------------------------------------------------------------
+<FilesMatch "(?i)^(\.ht.*|example\.htaccess)$">
     <IfModule mod_authz_core.c>
         Require all denied
     </IfModule>
     <IfModule !mod_authz_core.c>
-        Order deny,allow
+        Order allow,deny
         Deny from all
     </IfModule>
 </FilesMatch>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^\.ht.* - [F,L]
+    RewriteRule ^example\.htaccess$ - [F,L]
+</IfModule>

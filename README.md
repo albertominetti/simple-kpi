@@ -415,7 +415,10 @@ protects the dashboard with Basic Auth but lets requests through when they
 carry a **Bearer token** (`Require env HAS_BEARER`) or use **POST/DELETE**
 (`<RequireAny>`), because the API is protected by PHP, which validates the
 token (`check_read()` on GETs, `check_bearer()` on POST/DELETE). An invalid
-token therefore still gets a `401` from PHP. If the host is Apache 2.2 (no
+token therefore still gets a `401` from PHP. Direct HTTP requests to
+`.htaccess`, `.htpasswd` or `example.htaccess` are **refused by the
+generated `.htaccess` itself** (403, via `<FilesMatch>` deny + `mod_rewrite`),
+so the auth files can never be downloaded. If the host is Apache 2.2 (no
 `<RequireAny>`), move the root `.htaccess` into a subfolder that contains
 only the dashboard and set `BASIC_AUTH_USER`/`BASIC_AUTH_PASS` in
 `config.php` (the API GETs will then be protected by PHP itself).

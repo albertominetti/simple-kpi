@@ -123,6 +123,13 @@ of endpoints.
   method is POST/DELETE. PHP is the real enforcer: an invalid token still
   gets a `401`, so bypassing Apache with a fake `Bearer` header does not
   expose any data.
+- **The auth files themselves are never downloadable.** The generated root
+  `.htaccess` forbids HTTP access to `.htaccess`, `.htpasswd` and
+  `example.htaccess` with two independent layers: a `<FilesMatch>` deny
+  (`Require all denied`, case-insensitive) and a `mod_rewrite` rule that
+  returns `403` (`[F]`). `.htpasswd` sits next to `.htaccess` by design, so
+  this is what keeps the viewer credential hashes out of reach of the
+  browser even though they are inside the web-accessible folder.
 
 ### 3.4 Validations (all server-side)
 
@@ -349,6 +356,7 @@ configuration at snapshot time. The frontend uses directly the
 | Writes | Bearer token (`check_bearer`), `hash_equals` comparison (constant time) |
 | Reads | Bearer token (`check_read`) **or** Basic Auth via `.htaccess` + optional PHP check |
 | Apache gate | `<RequireAny>` allows valid-user, `Bearer` header (`Require env HAS_BEARER`), POST and DELETE; PHP always validates the token/credentials |
+| Auth files (`.htaccess`, `.htpasswd`) | The generated root `.htaccess` refuses to serve itself, `.htpasswd` and `example.htaccess` on **two independent layers**: `<FilesMatch>` `Require all denied` (case-insensitive, 2.2 fallback `Deny from all`) **and** `mod_rewrite` `[F]` 403. Apache core also blocks `.htaccess` by default; `first_setup.php` self-checks that these guards are present before activating the file |
 | `data/` | `.htaccess` with `Require all denied` (Apache 2.4) + `Deny from all` (2.2) and `<FilesMatch>` on php/sqlite/db |
 | Authorization header | `SetEnvIf` in the API `.htaccess` (CGI/FastCGI hosts) |
 | SQL injection | PDO prepared statements everywhere (no concatenation) |

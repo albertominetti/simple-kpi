@@ -109,6 +109,11 @@ and 7 days of history**, so the dashboard is immediately populated.
 - Later deploys can never override these files (they aren't uploaded and are
   excluded); they only refresh the `example.htaccess` template, so the setup
   is stable for the life of the server.
+- **The auth files cannot be downloaded.** The generated `.htaccess` refuses
+  to serve itself, `.htpasswd` and `example.htaccess` over HTTP (a
+  `<FilesMatch>` deny **plus** a `mod_rewrite` `403`), so the viewer
+  credentials are never exposed even though `.htpasswd` sits in the same
+  web-accessible folder.
 
 To check status:
 
