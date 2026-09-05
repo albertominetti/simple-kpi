@@ -104,10 +104,15 @@ and 7 days of history**, so the dashboard is immediately populated.
 - Later deploys can never override these files (they aren't uploaded and are
   excluded), so the setup is stable for the life of the server.
 
-To check status anytime:
+To check status:
 
 ```bash
-curl https://your-domain.com/dashboard/first_setup.php
+# BEFORE first_setup has run: no root .htaccess exists yet, so GET is open
+curl https://your-domain.com/dashboard/first_setup.php        # → Initialized: no
+
+# AFTER first_setup has run: the generated .htaccess protects GETs with
+# Basic Auth, so include the viewer credentials
+curl -u alice:'SuperSecret123' https://your-domain.com/dashboard/first_setup.php   # → Initialized: yes
 ```
 
 ---
@@ -122,7 +127,8 @@ curl -u alice:'SuperSecret123' https://your-domain.com/dashboard/api/config
 curl -H "Authorization: Bearer YOUR_SAVED_TOKEN" https://your-domain.com/dashboard/api/config
 ```
 
-Expected: your title/subtitle and the **5 seeded metrics**
+Expected: the seeded title/subtitle (`Operations Dashboard` / `updated daily
+at 20:00`) and the **5 seeded metrics**
 (`orders`, `emails`, `tickets`, `errors`, `queued`).
 
 ---
