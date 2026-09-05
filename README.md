@@ -9,6 +9,10 @@ company references. The whole setup (title, subtitle, metric definitions)
 comes from the backend and is **managed through the API** — there are **no
 business metric defaults in the code**.
 
+## Dashboard preview
+
+![KPI Dashboard with sample data](docs/dashboard.png)
+
 ## Architecture
 
 ```
