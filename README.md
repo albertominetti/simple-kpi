@@ -340,47 +340,61 @@ overrides `DEPLOY_DIR`. Details: see **`TECH.md` §8.7**.
 
 ## Deploy on shared hosting (no SSH)
 
+> Quickest path: use the **FTPS workflow** (ships `first_setup.php` +
+> `data/seed.sqlite`, never uploads the server-owned files) and then run the
+> one-time bootstrap. See **`QUICK_START.md`** for the full step-by-step.
+
 1. **Build the frontend locally**: `cd frontend && npm install && npm run build`.
 2. **Upload via FTP / file manager** — everything goes into a single folder
    (here `/dashboard/`; change it if you deploy with a different
    `DEPLOY_DIR`):
    - the content of `frontend/dist/` → `/dashboard/` (`index.html`,
-     `assets/`, root `.htaccess`);
+     `assets/`); **do not** upload the root `.htaccess` from `dist/`;
    - `deploy/api/` → `/dashboard/api/` (`metrics.php`, its `.htaccess`,
      `HELP.html`, `openapi.yaml`);
    - `deploy/data/.htaccess` → `/dashboard/data/` (protects the data folder);
+   - `deploy/data/kpi.sqlite` → `/dashboard/data/seed.sqlite` (seed for new
+     installs);
+   - `deploy/first_setup.php` → `/dashboard/` (one-time bootstrap);
    - **do not upload** `deploy/data/config.php`, `deploy/.htaccess` and
-     `deploy/router.php`: `config.php` is created/managed directly on the
-     server, the root `.htaccess` already comes from `dist/` (the two are
-     identical) and `router.php` is development-only.
-3. **Generate `.htpasswd`** (e.g. `htpasswd -c .htpasswd user`) and update
-   `AuthUserFile` in the root `.htaccess` (the one in `/dashboard/`) with
-   the real path.
-4. **Set `API_TOKEN`** in the server file `/dashboard/data/config.php` with
-   a long random string (`openssl rand -hex 32`) and hand it to the
-   collector.
-5. **Create the metrics through the API** (see "Client usage guide"), and
+     `deploy/router.php`.
+3. **Run the one-time bootstrap** (generates `data/config.php` with a real
+   `API_TOKEN`, `data/.htpasswd`, the root `.htaccess` with the real
+   `AuthUserFile`, and seeds `data/kpi.sqlite`):
+
+   ```bash
+   curl -X POST https://example.com/dashboard/first_setup.php \
+     -H "Content-Type: application/json" \
+     -d '{"user":"alice","pass":"SuperSecret123"}'
+   ```
+
+   It prints the `API_TOKEN` once — hand it to the collector. A second POST
+   is refused (`409`), and later deploys never override these four
+   server-owned files.
+4. **Create the metrics through the API** (see "Client usage guide"), and
    optionally set title/subtitle with `POST /api/config` — the frontend
-   adapts by itself.
-6. **Smoke test**:
+   adapts by itself. (The seed already includes sample metrics/history to get
+   you started.)
+5. **Smoke test**:
 
 ```bash
 # Setup: read config with the Bearer token (feeder/operator)
+# (on a fresh install the seed already lists 5 sample metrics)
 curl -H "Authorization: Bearer YOUR_TOKEN" https://example.com/dashboard/api/config
 
 # Read latest with the token (feeder/operator) or Basic (human)
 curl -H "Authorization: Bearer YOUR_TOKEN" https://example.com/dashboard/api/metrics/latest
 curl -u user:password https://example.com/dashboard/api/metrics/latest
 
-# Create a test metric (Bearer)
+# Update one of the seeded metrics (upsert by key; Bearer)
 curl -X POST https://example.com/dashboard/api/config/metrics \
   -H "Authorization: Bearer YOUR_TOKEN" -H "Content-Type: application/json" \
   -d '{"key":"orders","name":"Orders","G":0,"Y":2,"O":5,"weight":1}'
 
-# Test snapshot (Bearer)
+# Test snapshot (Bearer) - must include ALL active keys (here the 5 seed keys)
 curl -X POST https://example.com/dashboard/api/metrics \
   -H "Authorization: Bearer YOUR_TOKEN" -H "Content-Type: application/json" \
-  -d '{"date":"2026-08-25","metrics":{"orders":1},"index":0}'
+  -d '{"date":"2026-08-25","metrics":{"orders":1,"emails":5,"tickets":2,"errors":0,"queued":0},"index":0}'
 ```
 
 **Note on Basic Auth, Bearer reads and writes**: the root `.htaccess`

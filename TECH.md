@@ -426,29 +426,27 @@ npm run preview      # serves the freshly built dist/ on http://localhost:4173
 
 ### 8.5 Deploy on shared hosting (no SSH)
 
-1. **Build** the frontend (8.2) → `frontend/dist/`.
-2. **Upload via FTP / file manager** — everything goes into a single folder
-   (here `/dashboard/`; change it if you deploy with a different
-   `DEPLOY_DIR`):
-   - the content of `frontend/dist/` → `/dashboard/` (`index.html`,
-     `assets/`, root `.htaccess`);
-   - `deploy/api/` → `/dashboard/api/` (`metrics.php`, its `.htaccess`,
-     `HELP.html`, `openapi.yaml`);
-   - `deploy/data/.htaccess` → `/dashboard/data/` (protects the data folder);
-   - **do not upload** `deploy/data/config.php`, `deploy/.htaccess` and
-     `deploy/router.php`: `config.php` is created/managed directly on the
-     server, the root `.htaccess` already comes from `dist/` (the two are
-     identical) and `router.php` is development-only.
-3. **Generate `.htpasswd`** and set `AuthUserFile` in the root `.htaccess`
-   (the one in `/dashboard/`).
-4. **Set `API_TOKEN`** in the server file `/dashboard/data/config.php`
-   (and, if needed, Basic credentials).
-5. Create the metrics with `POST /api/config/metrics` (and, optionally, set
-   title/subtitle with `POST /api/config`).
-6. **Smoke test**: `curl -u user:password
-   https://example.com/dashboard/api/config` and `curl ...
-   /dashboard/api/metrics/latest`, then create one metric and push one
-   snapshot (see README).
+The recommended flow uses the **CI assemble + FTPS deploy** (8.7) which ships
+`first_setup.php` + `data/seed.sqlite` and **never** uploads the four
+server-owned files (`.htaccess`, `data/config.php`, `data/.htpasswd`,
+`data/kpi.sqlite`). After the first deploy, run the one-time bootstrap once:
+
+```bash
+curl -X POST https://your-domain.com/dashboard/first_setup.php \
+  -H "Content-Type: application/json" \
+  -d '{"user":"alice","pass":"SuperSecret123"}'
+```
+
+This generates `data/config.php` (real `API_TOKEN`), `data/.htpasswd`, the
+root `.htaccess` (with the real `AuthUserFile`), and seeds `data/kpi.sqlite`
+from `data/seed.sqlite`. It is self-sealing: a second POST returns `409`.
+See `QUICK_START.md` for the full walk-through.
+
+Manual alternative (no CI): upload the content of `frontend/dist/` (minus the
+root `.htaccess`), `deploy/api/`, `deploy/data/.htaccess`,
+`deploy/data/kpi.sqlite` (renamed `seed.sqlite`) and `deploy/first_setup.php`,
+then run the same POST. Do not upload `deploy/data/config.php` or
+`deploy/router.php`.
 
 ### 8.6 Local development (backend + frontend together)
 
@@ -468,7 +466,7 @@ The repository includes two workflows in `.github/workflows/`:
 | Workflow | When it runs | What it does |
 |---|---|---|
 | `ci.yml` | push/PR on any branch | Builds the frontend and uploads `dist/` as a downloadable **artifact** |
-| `prod-deploy.yml` | push to `main` (or manual) | Builds the SPA and **publishes via FTPS** (compiled frontend + `api/` + `data/` protection) into a single remote folder |
+| `prod-deploy.yml` | push to `prod` (or manual) | Builds the SPA and **publishes via FTPS** (compiled frontend + `api/` + `data/` protection + seed + bootstrap) into a single remote folder |
 
 `prod-deploy.yml` first **assembles a single release folder** with the exact
 content of the remote deploy folder and then uploads it in **one FTPS pass**
@@ -479,14 +477,28 @@ prod workflow). The remote layout is:
 <FTP home>/dashboard/        <- default target (configurable)
 ├── index.html               # compiled SPA frontend (served to the browser)
 ├── assets/…                 # hashed JS/CSS
-├── .htaccess                # Basic Auth + Bearer-token pass-through (PHP validates)
+├── first_setup.php          # one-time bootstrap (POST), see 8.5 / QUICK_START
 ├── api/
 │   ├── .htaccess            # rewrite config/config/metrics/metrics/... -> metrics.php
 │   ├── metrics.php          # the whole backend
 │   ├── HELP.html            # API reference (humans / AI agents)
 │   └── openapi.yaml         # OpenAPI 3.0 spec
 └── data/
-    └── .htaccess            # denies web access (config.php lives here, server-side)
+    ├── .htaccess            # denies web access (secrets + DB live here)
+    └── seed.sqlite          # seed for new installs (copied -> kpi.sqlite once)
+```
+
+**Server-owned files** (never uploaded; generated once by `first_setup.php`,
+and additionally listed in the deploy step's `exclude` so the FTPS action can
+never overwrite or delete them):
+
+```text
+dashboard/
+├── .htaccess               # created by first_setup.php (real AuthUserFile)
+└── data/
+    ├── config.php          # created by first_setup.php (API_TOKEN)
+    ├── .htpasswd           # created by first_setup.php (viewer credentials)
+    └── kpi.sqlite          # LIVE database (seeded from seed.sqlite once)
 ```
 
 The default target is `dashboard/` (relative to the FTP home). To change it:
@@ -508,12 +520,13 @@ Secrets and variables required in the repository
 | Secret | `ftp_port` *(optional)* | FTPS port (default `21`) |
 | Variable | `DEPLOY_DIR` *(optional)* | target folder relative to the FTP home, must end with `/` (default `dashboard/`) |
 
-Note: `deploy/data/config.php` is **never uploaded** (it must not overwrite
-the production token/credentials), nor are the dev-only `deploy/router.php`
-and the duplicate root `.htaccess` (the one in `dist/` is used). The FTPS
-sync tracks only the files it uploads, so a pre-existing server-side
-`config.php` is never deleted. To update token/credentials, act directly on
-the remote file.
+Note: the four server-owned files (`.htaccess`, `data/config.php`,
+`data/.htpasswd`, `data/kpi.sqlite`) are **never uploaded** — they are
+generated once by `first_setup.php` and are listed in the deploy step's
+`exclude`, so the FTPS sync can never overwrite or delete them. The dev-only
+`deploy/router.php` is not uploaded either. To rotate the token or change the
+viewer password, regenerate on the server (delete `data/config.php` +
+`data/.htpasswd` and re-run `first_setup.php`, or edit the files directly).
 
 ---
 
@@ -522,11 +535,13 @@ the remote file.
 ```
 ├── .github/workflows/
 │   ├── ci.yml                       # CI: build + artifact (push/PR)
-│   └── prod-deploy.yml              # CI: build + FTPS deploy (main/manual)
+│   └── prod-deploy.yml              # CI: build + FTPS deploy (prod/manual)
 ├── README.md                        # user/client guide
+├── QUICK_START.md                   # post-upload server setup (first_setup flow)
 ├── TECH.md                          # this document
 ├── deploy/                          # server side (uploaded via CI/manually)
-│   ├── .htaccess                    # Basic Auth + POST/DELETE exemption
+│   ├── first_setup.php              # one-time bootstrap: token + .htpasswd + .htaccess + seed
+│   ├── .htaccess                    # root auth template (reference; generated live by first_setup)
 │   ├── api/
 │   │   ├── .htaccess                # rewrite + Authorization header
 │   │   ├── metrics.php              # the WHOLE backend (routing included)
@@ -535,8 +550,8 @@ the remote file.
 │   │   └── router.php               # DEV ONLY (built-in server)
 │   └── data/
 │       ├── .htaccess                # deny all
-│       ├── config.php               # API_TOKEN, credentials, fallback title (NO metrics)
-│       └── kpi.sqlite               # created on first access (not versioned)
+│       ├── config.php               # template (CHANGE_ME) - real one is generated on the server
+│       └── kpi.sqlite               # seed DB (shipped as data/seed.sqlite by CI)
 └── frontend/
     ├── package.json                 # vue, chart.js, vite
     ├── vite.config.js               # base './', outDir dist
