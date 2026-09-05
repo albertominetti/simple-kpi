@@ -371,7 +371,7 @@ configuration at snapshot time. The frontend uses directly the
 
 ### 8.1 Prerequisites for building the frontend
 
-- **Node.js ≥ 18** (20 LTS recommended) and **npm ≥ 9**.
+- **Node.js ≥ 20** (22 LTS recommended) and **npm ≥ 9**.
   Check: `node -v && npm -v`.
 - The build is **local only** (or CI): there is no npm or SSH on the
   server, so you build elsewhere and upload the resulting `dist/`.

@@ -302,8 +302,8 @@ metrics still present in the active configuration are returned.
 
 ## Building the frontend
 
-Prerequisites: **Node.js ≥ 18** and **npm** (the build is local/CI, not on
-the server).
+Prerequisites: **Node.js ≥ 20** (22 LTS recommended) and **npm** (the build
+is local/CI, not on the server).
 
 ```bash
 cd frontend
