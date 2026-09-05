@@ -36,7 +36,7 @@ name: Deploy production (FTPS)
 
 on:
   push:
-    branches: [main]
+    branches: [prod]
   workflow_dispatch:
     inputs:
       deploy_dir:
