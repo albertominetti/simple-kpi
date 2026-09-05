@@ -1,5 +1,7 @@
 # Dashboard KPI
 
+[![Made with Janito](https://img.shields.io/badge/Made%20with-Janito-7a52e0?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PGRlZnM+PGxpbmVhckdyYWRpZW50IGlkPSJnIiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjM2E2YmYwIi8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjN2E1MmUwIi8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHJlY3QgeD0iMSIgeT0iMSIgd2lkdGg9IjMwIiBoZWlnaHQ9IjMwIiByeD0iNyIgZmlsbD0idXJsKCNnKSIvPjxwYXRoIGQ9Ik0xOC42IDMuNSA3LjQgMTguMmg2LjRMMTIuOSAyOC41IDI0LjYgMTMuMWgtNi43WiIgZmlsbD0iI2ZmZDc2YSIgc3Ryb2tlPSJyZ2JhKDAsMCwwLDAuMTgpIiBzdHJva2Utd2lkdGg9IjAuNzUiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=)](https://github.com/joaompinto/janito)
+
 Generic, configurable KPI dashboard: a 0–100 aggregate index obtained from
 the **weighted mean** of several metric scores, with gauges, mini-gauges and
 history.
@@ -455,3 +457,7 @@ only the dashboard and set `BASIC_AUTH_USER`/`BASIC_AUTH_PASS` in
     ├── index.html
     └── src/{main.js, App.vue, api.js, metrics.js, style.css, components/…}
 ```
+
+---
+
+*Built with [Janito](https://github.com/joaompinto/janito) — shout out to [@joaompinto](https://github.com/joaompinto) for the coding agent used for this project. Total cost: $2.*
