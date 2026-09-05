@@ -175,6 +175,23 @@ curl -X DELETE "$BASE/api/config/metrics/queued" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
+### 4c. Wipe the seeded demo history (optional, recommended)
+
+The seed ships **7 days of demo history**. Once you have removed the sample
+metrics (or replaced them with your own), clear that demo history so the
+dashboard starts empty and only shows the data *you* publish:
+
+```bash
+# Deletes ALL stored data points + daily snapshots.
+# Keeps the title/subtitle and your metric definitions.
+curl -X DELETE "$BASE/api/metrics" \
+  -H "Authorization: Bearer $TOKEN"
+# -> {"ok":true,"deleted":{"data_points":35,"snapshots":7}}
+```
+
+After this, `GET /api/metrics/latest` returns `null` and `GET /api/metrics`
+returns `[]` until the first real snapshot is posted.
+
 ---
 
 ## 5 · Publish & verify data (the feeder)
@@ -219,6 +236,7 @@ step 1 (`alice` / your password), and you should see the gauges + history.
 | Auth | `Authorization: Bearer <API_TOKEN>` (from step 1) |
 | Snapshot payload | `{"date":"YYYY-MM-DD","metrics":{"<key>":<rawValue>, …}}` |
 | Correction | re-`POST` the same `date` (replaces) |
+| Wipe all history (admin) | `DELETE $BASE/api/metrics` (Bearer; keeps config) |
 | Full docs | `$BASE/api/HELP.html` |
 
 ---
@@ -230,6 +248,7 @@ step 1 (`alice` / your password), and you should see the gauges + history.
 - [ ] `first_setup.php` POSTed once → got the `API_TOKEN` (saved!)
 - [ ] `data/` **and the app root** writable by PHP (the script creates files in both)
 - [ ] `GET $BASE/api/config` works with the Bearer token → shows the 5 seeded metrics
+- [ ] (Recommended) sample metrics removed + demo history wiped with `DELETE $BASE/api/metrics`
 - [ ] Dashboard opens in a browser with the `.htpasswd` user/password
 - [ ] First real snapshot posted (or test seed data is fine)
 - [ ] HTTPS is enabled (credentials must never travel in clear)

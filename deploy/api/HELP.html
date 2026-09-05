@@ -46,8 +46,8 @@
     <tr><th>Table</th><th>Content</th><th>Managed by</th></tr>
     <tr><td class="mono">config</td><td>Single row: dashboard <code>title</code>, <code>subtitle</code></td><td><code>POST /api/config</code></td></tr>
     <tr><td class="mono">config_metrics</td><td>One row per metric: key, name, why, G/Y/O thresholds, weight</td><td><code>POST /api/config/metrics</code> and <code>DELETE /api/config/metrics/{key}</code></td></tr>
-    <tr><td class="mono">metrics</td><td>Daily raw value + computed score per metric</td><td><code>POST /api/metrics</code> (snapshot)</td></tr>
-    <tr><td class="mono">snapshot</td><td>Daily aggregate index + zone</td><td><code>POST /api/metrics</code> (snapshot)</td></tr>
+    <tr><td class="mono">metrics</td><td>Daily raw value + computed score per metric</td><td><code>POST /api/metrics</code> (add), <code>DELETE /api/metrics</code> (wipe all)</td></tr>
+    <tr><td class="mono">snapshot</td><td>Daily aggregate index + zone</td><td><code>POST /api/metrics</code> (add), <code>DELETE /api/metrics</code> (wipe all)</td></tr>
   </table>
   <p>
     <b>Important:</b> there are <b>no hardcoded/business metric defaults in the code</b>. To define what the
@@ -86,6 +86,7 @@ curl -u "$USER:$PASS" "$BASE/api/config"        # or with Basic credentials</cod
     <tr><td><span class="tag post">POST</span></td><td class="mono">/api/config/metrics</td><td>Bearer</td><td>Create or update <b>one</b> metric (upsert by key)</td></tr>
     <tr><td><span class="tag delete">DELETE</span></td><td class="mono">/api/config/metrics/{key}</td><td>Bearer</td><td>Delete a metric</td></tr>
     <tr><td><span class="tag post">POST</span></td><td class="mono">/api/metrics</td><td>Bearer</td><td>Save/replace the daily snapshot</td></tr>
+    <tr><td><span class="tag delete">DELETE</span></td><td class="mono">/api/metrics</td><td>Bearer</td><td>Delete <b>all</b> stored history (data points + daily snapshots); keeps the configuration</td></tr>
     <tr><td><span class="tag get">GET</span></td><td class="mono">/api/metrics/latest</td><td>Basic or Bearer</td><td>Latest snapshot (gauges)</td></tr>
     <tr><td><span class="tag get">GET</span></td><td class="mono">/api/metrics?from=&amp;to=</td><td>Basic or Bearer</td><td>History (default last 30 days)</td></tr>
   </table>
@@ -121,6 +122,7 @@ curl -u "$USER:$PASS" "$BASE/api/config"        # or with Basic credentials</cod
     <p><b>2) Create/update each metric</b> you want to track with <code>POST /api/config/metrics</code> (repeat per metric). Re-POSTing the same key updates it; the frontend adapts automatically.</p>
     <p><b>3) (Optional) set the dashboard title/subtitle</b> with <code>POST /api/config</code>.</p>
     <p><b>4) Every day, push the snapshot:</b> <code>POST /api/metrics</code> with <code>{"date":"YYYY-MM-DD","metrics":{"key":rawValue,…}}</code>. Re-POSTing the same date <b>replaces</b> that day (idempotent) — use it to correct mistakes.</p>
+    <p><b>4b) (Optional, one-time) Wipe the demo history:</b> on a fresh install the seed ships sample metrics + 7 days of demo history. Remove the samples with <code>DELETE /api/config/metrics/{key}</code> and clear the seeded history with <code>DELETE /api/metrics</code> before posting your own data.</p>
     <p><b>5) Read back</b>: <code>GET /api/metrics/latest</code> and <code>GET /api/metrics?from=…&amp;to=…</code> to verify. Responses include, per metric: <code>value</code> (raw), <code>score</code> (0–100) and <code>zone</code>.</p>
   </div>
 
@@ -176,6 +178,19 @@ curl -u "$USER:$PASS" "$BASE/api/config"
 200 {"ok": true, "date": "2026-09-01", "index": 55.8, "zone": "orange"}</code></pre>
   <p class="note">If no metrics have been configured yet, the API answers <code>400</code> with
   “no metrics configured yet: create them first with POST /api/config/metrics”.</p>
+
+  <h3><span class="tag delete">DELETE</span> <code>/api/metrics</code> — clean all stored history</h3>
+  <p>Auth: <span class="tag auth">Bearer</span>. Deletes <b>every stored data point and every
+  daily snapshot</b> (the <code>metrics</code> and <code>snapshot</code> tables). The dashboard
+  <b>configuration is preserved</b>: title/subtitle and the metric definitions stay in place —
+  remove metrics you no longer want with <code>DELETE /api/config/metrics/{key}</code>.</p>
+  <p>Useful right after removing the <b>sample/seed metrics</b> of a fresh install: it wipes the
+  seeded demo history so the dashboard starts empty and only shows data you publish yourself.</p>
+  <pre><code>curl -X DELETE "$BASE/api/metrics" -H "Authorization: Bearer $TOKEN"
+
+200 {"ok": true, "deleted": {"data_points": 35, "snapshots": 7}}</code></pre>
+  <p>After the wipe, <code>GET /api/metrics/latest</code> returns <code>null</code> fields and
+  <code>GET /api/metrics</code> returns <code>[]</code> until the next snapshot is posted.</p>
 
   <h3><span class="tag get">GET</span> <code>/api/metrics/latest</code> — latest snapshot</h3>
   <p>Auth: <span class="tag auth">Basic</span> or <span class="tag auth">Bearer</span>. Used by the dashboard gauges. Contains <code>date</code>, <code>index</code>, <code>zone</code> and per-metric <code>{value, score, zone}</code>.</p>

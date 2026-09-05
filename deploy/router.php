@@ -4,7 +4,7 @@
  *
  * Serves everything from a SINGLE origin, like production:
  *   - /api/config           -> api/metrics.php   (POST save/update setup, GET read setup)
- *   - /api/metrics*         -> api/metrics.php   (backend, POST/GET)
+ *   - /api/metrics*         -> api/metrics.php   (backend, GET/POST/DELETE)
  *   - everything else       -> frontend/dist/    (Vite build of the dashboard)
  *
  * Usage:

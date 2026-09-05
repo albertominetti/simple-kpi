@@ -10,6 +10,9 @@
  *   POST   /api/metrics                    Save a daily snapshot (Bearer token).
  *   GET    /api/metrics/latest             Latest snapshot (Basic or Bearer).
  *   GET    /api/metrics?from=&to=          History (Basic or Bearer, default 30 days).
+ *   DELETE /api/metrics                    Delete ALL stored history (data points + daily
+ *                                          snapshots) (Bearer token). Keeps the dashboard
+ *                                          configuration (title/subtitle + metric definitions).
  *
  * Dependencies: none (PHP 7.4+/8.x + PDO_SQLITE). No framework.
  *
@@ -702,6 +705,39 @@ function handle_history(): void
     json_response(array_values($byDate));
 }
 
+/**
+ * DELETE /api/metrics - wipe the entire stored history.
+ *
+ * Removes every row from `metrics` (per-metric daily data points + stored
+ * scores) and from `snapshot` (daily aggregate index/zone). The dashboard
+ * configuration is NOT touched: title/subtitle (`config`) and the metric
+ * definitions (`config_metrics`) stay. Useful right after removing the
+ * seeded sample metrics, so the dashboard starts from an empty history.
+ */
+function handle_data_delete_all(): void
+{
+    check_bearer();
+
+    $pdo = db();
+    $pdo->beginTransaction();
+    try {
+        $deletedMetrics  = $pdo->exec('DELETE FROM metrics');
+        $deletedSnapshot = $pdo->exec('DELETE FROM snapshot');
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        json_response(['error' => 'clean error: ' . $e->getMessage()], 500);
+    }
+
+    json_response([
+        'ok'      => true,
+        'deleted' => [
+            'data_points' => (int) $deletedMetrics,
+            'snapshots'   => (int) $deletedSnapshot,
+        ],
+    ]);
+}
+
 /* ------------------------------------------------------------------ *
  *  Routing (no framework)
  * ------------------------------------------------------------------ */
@@ -748,6 +784,8 @@ if (preg_match('#/config/metrics/([^/]+)$#', $path, $m)) {
         handle_history();
     } elseif ($method === 'POST') {
         handle_post();
+    } elseif ($method === 'DELETE') {
+        handle_data_delete_all();
     } else {
         json_response(['error' => 'method not allowed'], 405);
     }

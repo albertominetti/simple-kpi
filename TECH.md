@@ -66,7 +66,9 @@ hardcoded metric, everything comes from the backend via `GET /api/config`.
   `config` table as plain columns, managed with `POST /api/config`.
 - **Data**: the client sends daily raw values with `POST /api/metrics`; the
   server recomputes scores and the aggregate index and exposes them via the
-  GET endpoints.
+  GET endpoints. `DELETE /api/metrics` wipes the whole stored history
+  (`metrics` + `snapshot` rows) while keeping the configuration — handy to
+  clear the seeded demo data.
 - **Documentation ships with the API**: `api/HELP.html` (human/AI readable
   reference) and `api/openapi.yaml` (OpenAPI 3.0 machine-readable spec).
 
@@ -83,6 +85,7 @@ hardcoded metric, everything comes from the backend via `GET /api/config`.
 | POST | `/api/config/metrics` | Bearer | Create or update one metric (upsert by key) |
 | DELETE | `/api/config/metrics/{key}` | Bearer | Delete a metric |
 | POST | `/api/metrics` | Bearer | Save/replace the daily snapshot |
+| DELETE | `/api/metrics` | Bearer | Delete **all** stored history (data points + snapshots); keeps the configuration |
 | GET | `/api/metrics/latest` | Basic or Bearer | Latest snapshot (gauges) |
 | GET | `/api/metrics?from=&to=` | Basic or Bearer | History (default last 30 days) |
 
@@ -141,6 +144,9 @@ of endpoints.
   `weight` numeric ≥ 0 (default `1`) → otherwise **400**.
 - `POST /api/config`: only `title`/`subtitle` strings; a `metrics` field is
   rejected with a **400** hint pointing to `/api/config/metrics`.
+- `DELETE /api/metrics`: wipes **all** rows from `metrics` and `snapshot` (no
+  body needed). It never touches `config`/`config_metrics`; those are managed
+  exclusively through the `/api/config*` endpoints.
 - Missing/wrong token → **401** `{"error":"unauthorized"}`.
 - Unknown endpoint → **404**; disallowed method on a known path → **405**.
 
@@ -227,7 +233,10 @@ CREATE TABLE config_metrics (
 - **Deleting a metric** only removes its `config_metrics` row. Historical
   `metrics` rows are kept but filtered out of the GET responses (a metric no
   longer in the active configuration is not exposed). Re-creating the same
-  key later restores the history.
+  key later restores the history. To permanently wipe **all** stored history
+  (every data point and daily snapshot, including rows of deleted metrics),
+  call `DELETE /api/metrics` — it clears the `metrics` and `snapshot` tables
+  but leaves `config`/`config_metrics` untouched.
 - **Legacy migration**: on first access, `init_schema()` detects an old
   install (a `config` table with a `json` column), imports any metrics found
   into `config_metrics`, keeps title/subtitle, then rebuilds `config` with

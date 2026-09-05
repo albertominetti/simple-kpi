@@ -202,6 +202,30 @@ paths:
                     enum: [green, yellow, orange, red]
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+    delete:
+      tags: [metrics]
+      summary: Delete all stored history (data points + daily snapshots)
+      description: >-
+        Removes every row from the `metrics` table (per-metric daily values +
+        stored scores) and from the `snapshot` table (daily aggregate index +
+        zone). The dashboard configuration is preserved: title/subtitle and
+        the metric definitions in `config_metrics` are NOT deleted. Useful to
+        wipe the seeded sample history after removing the sample metrics.
+      responses:
+        '200':
+          description: History wiped
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  deleted:
+                    type: object
+                    properties:
+                      data_points: { type: integer, example: 35 }
+                      snapshots: { type: integer, example: 7 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   /api/metrics/latest:
     get:

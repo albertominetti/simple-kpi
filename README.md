@@ -24,6 +24,7 @@ Collector ──(daily, Bearer: POST + GET)──▶ PHP API + SQLite
                                    POST /api/config/metrics    (create/update a metric)
                                    DELETE /api/config/metrics/{key} (delete a metric)
                                    POST /api/metrics           (daily snapshot)
+                                   DELETE /api/metrics         (wipe all history)
                                    GET  /api/metrics/*         (data; Basic or Bearer)
                                    Static dashboard (Vue)
 ```
@@ -55,8 +56,8 @@ Metrics are **defined through the API**, never in code:
 |---|---|---|
 | `config` | single row: dashboard `title`, `subtitle` | `POST /api/config` |
 | `config_metrics` | one row per metric: `key`, `name`, `why`, `G`/`Y`/`O`, `weight` | `POST /api/config/metrics`, `DELETE /api/config/metrics/{key}` |
-| `metrics` | daily raw values + scores | `POST /api/metrics` |
-| `snapshot` | daily aggregate index + zone | `POST /api/metrics` |
+| `metrics` | daily raw values + scores | `POST /api/metrics` (add), `DELETE /api/metrics` (wipe all) |
+| `snapshot` | daily aggregate index + zone | `POST /api/metrics` (add), `DELETE /api/metrics` (wipe all) |
 
 `deploy/data/config.php` holds only `API_TOKEN`, `DB_PATH`, optional Basic
 credentials and a generic fallback title/subtitle (used before any
@@ -73,6 +74,7 @@ credentials and a generic fallback title/subtitle (used before any
 | POST | `/api/metrics` | `Authorization: Bearer <API_TOKEN>` | Save/replace the daily snapshot (idempotent per date) |
 | GET | `/api/metrics/latest` | Basic Auth **or** `Authorization: Bearer` | Latest snapshot for the gauges |
 | GET | `/api/metrics?from=YYYY-MM-DD&to=YYYY-MM-DD` | Basic Auth **or** `Authorization: Bearer` | History (default last 30 days) |
+| DELETE | `/api/metrics` | `Authorization: Bearer <API_TOKEN>` | **Delete all stored history** (every data point + daily snapshot) |
 
 The server **always recomputes** scores (0–100) and the aggregate index from
 the raw values using the thresholds and weights of the **active**
@@ -149,7 +151,8 @@ curl -X DELETE https://example.com/dashboard/api/config/metrics/orders \
 Response: `200` `{"ok": true, "key": "orders", "deleted": true}` — or `404`
 if the key does not exist. Historical daily rows of the deleted metric are
 kept but hidden from GET responses; re-creating the same key later restores
-them.
+them. To permanently wipe **all** stored history (including these hidden
+rows and the daily snapshots) use `DELETE /api/metrics` below.
 
 ### GET /api/config — reading the configuration
 
@@ -176,6 +179,28 @@ curl -X POST https://example.com/dashboard/api/metrics \
 The keys of the `metrics` payload must cover **all** active configuration
 keys (`GET /api/config`). The `index` field is optional and **ignored**: the
 server recomputes scores and the aggregate index.
+
+### DELETE /api/metrics — clean all stored history
+
+Deletes **every stored data point** and **every daily snapshot** (rows in the
+`metrics` and `snapshot` tables). The dashboard **configuration is kept**: the
+title/subtitle and the metric definitions (`config_metrics`) are **not**
+touched — use `DELETE /api/config/metrics/{key}` to remove metrics you no
+longer want.
+
+This is handy right after you remove the **sample/seed metrics** from a fresh
+install: it wipes the seeded demo history so the dashboard starts empty and
+only shows data you publish yourself.
+
+```bash
+curl -X DELETE https://example.com/dashboard/api/metrics \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+Response: `200` `{"ok": true, "deleted": {"data_points": 35, "snapshots": 7}}`
+(`0`/`0` if there was nothing stored). After the wipe, `GET /api/metrics/latest`
+returns `null` fields and `GET /api/metrics` returns `[]` until the next
+snapshot is posted.
 
 ## Client usage guide (collector)
 
@@ -295,6 +320,7 @@ metrics still present in the active configuration are returned.
 ### Flow summary
 
 ```
+0. DELETE /api/metrics (optional)          -> wipe demo/seed history before going live
 1. POST   /api/config/metrics            -> create/update each metric (Bearer)
 2. GET    /api/config                    -> read the active configuration
 3. POST   /api/metrics                   -> send the values of the day (Bearer)
