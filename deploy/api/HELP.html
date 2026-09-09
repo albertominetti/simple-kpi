@@ -45,7 +45,7 @@
   <table>
     <tr><th>Table</th><th>Content</th><th>Managed by</th></tr>
     <tr><td class="mono">config</td><td>Single row: dashboard <code>title</code>, <code>subtitle</code></td><td><code>POST /api/config</code></td></tr>
-    <tr><td class="mono">config_metrics</td><td>One row per metric: key, name, why, G/Y/O thresholds, weight</td><td><code>POST /api/config/metrics</code> and <code>DELETE /api/config/metrics/{key}</code></td></tr>
+    <tr><td class="mono">config_metrics</td><td>One row per metric: key, name, why, G/Y/O thresholds, weight, position (display order)</td><td><code>POST /api/config/metrics</code> and <code>DELETE /api/config/metrics/{key}</code></td></tr>
     <tr><td class="mono">metrics</td><td>Daily raw value + computed score per metric</td><td><code>POST /api/metrics</code> (add), <code>DELETE /api/metrics</code> (wipe all)</td></tr>
     <tr><td class="mono">snapshot</td><td>Daily aggregate index + zone</td><td><code>POST /api/metrics</code> (add), <code>DELETE /api/metrics</code> (wipe all)</td></tr>
   </table>
@@ -102,8 +102,9 @@ curl -u "$USER:$PASS" "$BASE/api/config"        # or with Basic credentials</cod
     <tr><td class="mono">Y</td><td>number ≥ 0</td><td>yes</td><td>Yellow threshold: value in <code>[G+1..Y]</code> → yellow (score 26–50)</td></tr>
     <tr><td class="mono">O</td><td>number ≥ 0</td><td>yes</td><td>Orange threshold: value in <code>[Y+1..O]</code> → orange (score 51–75); above O → red (76–100)</td></tr>
     <tr><td class="mono">weight</td><td>number ≥ 0</td><td>no*</td><td>Relative importance in the aggregate (default: <code>1</code>)</td></tr>
+    <tr><td class="mono">position</td><td>integer ≥ 0</td><td>no</td><td>Display order of the metric on the dashboard (default: <code>0</code>). Lower positions come first; metrics are sorted by <code>position</code>, ties broken by <code>key</code>. Any integer is allowed (e.g. <code>0,10,20</code> leaves room to insert between).</td></tr>
   </table>
-  <p class="note">* <code>name</code>/<code>why</code> default sensibly; <code>weight</code> defaults to 1. Missing/empty <code>name</code> falls back to the key.</p>
+  <p class="note">* <code>name</code>/<code>why</code> default sensibly; <code>weight</code> defaults to 1; <code>position</code> defaults to 0. Missing/empty <code>name</code> falls back to the key.</p>
 
   <h3>Score &amp; aggregate — exact rules</h3>
   <ul>
@@ -118,7 +119,7 @@ curl -u "$USER:$PASS" "$BASE/api/config"        # or with Basic credentials</cod
   <h2>5 · Suggested workflow for an agent / collector</h2>
   <div class="card">
     <p><b>0) Authenticate.</b> You need the operator-provided Bearer token. Use it for writes <b>and</b> reads; reads also accept Basic credentials (humans).</p>
-    <p><b>1) Inspect</b> the current setup: <code>GET /api/config</code>. It returns <code>{"title":…,"subtitle":…,"metrics":{"key":{name,why,G,Y,O,weight},…}}</code>.</p>
+    <p><b>1) Inspect</b> the current setup: <code>GET /api/config</code>. It returns <code>{"title":…,"subtitle":…,"metrics":{"key":{name,why,G,Y,O,weight,position},…}}</code>, already sorted by <code>position</code> (ties by <code>key</code>).</p>
     <p><b>2) Create/update each metric</b> you want to track with <code>POST /api/config/metrics</code> (repeat per metric). Re-POSTing the same key updates it; the frontend adapts automatically.</p>
     <p><b>3) (Optional) set the dashboard title/subtitle</b> with <code>POST /api/config</code>.</p>
     <p><b>4) Every day, push the snapshot:</b> <code>POST /api/metrics</code> with <code>{"date":"YYYY-MM-DD","metrics":{"key":rawValue,…}}</code>. Re-POSTing the same date <b>replaces</b> that day (idempotent) — use it to correct mistakes.</p>
@@ -139,8 +140,8 @@ curl -u "$USER:$PASS" "$BASE/api/config"
   "title": "Production Dashboard",
   "subtitle": "updated daily at 20:00",
   "metrics": {
-    "orders": {"name": "Orders to fulfil", "why": "fast fulfilment keeps trust", "G": 0, "Y": 2, "O": 5, "weight": 0.6},
-    "emails": {"name": "Emails to triage", "why": "quick replies improve trust", "G": 5, "Y": 15, "O": 30, "weight": 0.4}
+    "orders": {"name": "Orders to fulfil", "why": "fast fulfilment keeps trust", "G": 0, "Y": 2, "O": 5, "weight": 0.6, "position": 0},
+    "emails": {"name": "Emails to triage", "why": "quick replies improve trust", "G": 5, "Y": 15, "O": 30, "weight": 0.4, "position": 1}
   }
 }</code></pre>
 
@@ -153,14 +154,14 @@ curl -u "$USER:$PASS" "$BASE/api/config"
 200 {"ok": true, "title": "Production Dashboard", "subtitle": "updated daily at 20:00"}</code></pre>
 
   <h3><span class="tag post">POST</span> <code>/api/config/metrics</code> — create/update one metric</h3>
-  <p>Auth: <span class="tag auth">Bearer</span>. Upsert by <code>key</code>: unknown key → created; existing key → updated. Validations: key URL-safe, thresholds numeric ≥ 0, weight ≥ 0.</p>
+  <p>Auth: <span class="tag auth">Bearer</span>. Upsert by <code>key</code>: unknown key → created; existing key → updated. Validations: key URL-safe, thresholds numeric ≥ 0, weight ≥ 0, position (optional) integer ≥ 0. Set <code>position</code> to control where the metric appears in the dashboard: lower numbers first, ties broken by <code>key</code>. Omit it to keep the current order (defaults to <code>0</code>).</p>
   <pre><code>curl -X POST "$BASE/api/config/metrics" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"key": "orders", "name": "Orders to fulfil", "why": "fast fulfilment keeps trust",
-       "G": 0, "Y": 2, "O": 5, "weight": 0.6}'
+       "G": 0, "Y": 2, "O": 5, "weight": 0.6, "position": 0}'
 
 200 {"ok": true, "created": true, "key": "orders",
-     "metric": {"name": "Orders to fulfil", "why": "…", "G": 0, "Y": 2, "O": 5, "weight": 0.6}}</code></pre>
+     "metric": {"name": "Orders to fulfil", "why": "…", "G": 0, "Y": 2, "O": 5, "weight": 0.6, "position": 0}}</code></pre>
 
   <h3><span class="tag delete">DELETE</span> <code>/api/config/metrics/{key}</code> — delete a metric</h3>
   <p>Auth: <span class="tag auth">Bearer</span>. Removes the metric from the active configuration. Historical rows are kept but hidden from GET responses; re-creating the key later restores them.</p>
@@ -216,6 +217,8 @@ curl -u "$USER:$PASS" "$BASE/api/metrics?from=2026-08-01&amp;to=2026-08-24"</cod
     <li>Bodies are always JSON, UTF-8.</li>
     <li>Dates are always <code>YYYY-MM-DD</code> (a real calendar date).</li>
     <li>GET responses only include metrics that are still in the active configuration.</li>
+    <li>In <code>GET /api/config</code> the metrics are ordered by <code>position</code>
+    (ascending), ties broken by <code>key</code> — this is the order the dashboard shows.</li>
     <li>Snapshots are idempotent per date: re-POSTing the same date atomically replaces it.</li>
   </ul>
 </main>

@@ -42,7 +42,7 @@ sync-state and can never be overridden or deleted by a later release):
 
 | Server-owned file | Created by | Holds |
 |---|---|---|
-| `data/config.php` | `first_setup.php` | `API_TOKEN` (Bearer), DB path |
+| `data/config.php` | `first_setup.php` | `API_TOKEN` (Bearer) — SQLite path derived by `api/metrics.php` from its own `__DIR__` |
 | `.htpasswd` | `first_setup.php` | viewer (Basic Auth) credentials — same folder as `.htaccess` |
 | `.htaccess` (root) | `first_setup.php` | Basic Auth, **copied from `example.htaccess`** with the real `AuthUserFile` path |
 | `data/kpi.sqlite` | `first_setup.php` | the **live** database (metrics + data points) |
