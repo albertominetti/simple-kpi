@@ -10,6 +10,8 @@
  *   POST   /api/metrics                    Save a daily snapshot (Bearer token).
  *   GET    /api/metrics/latest             Latest snapshot (Basic or Bearer).
  *   GET    /api/metrics?from=&to=          History (Basic or Bearer, default 30 days).
+ *   GET    /api/metrics/{key}?from=&to=    History for a single KPI (Basic or Bearer,
+ *                                          default 30 days).
  *   DELETE /api/metrics                    Delete ALL stored history (data points + daily
  *                                          snapshots) (Bearer token). Keeps the dashboard
  *                                          configuration (title/subtitle + metric definitions).
@@ -20,10 +22,12 @@
  * -------------------
  * There are NO hardcoded/business metric defaults in the code. Metric
  * definitions live in their own table `config_metrics` (one row per metric:
- * key, name, why, G/Y/O thresholds, weight) and are managed EXCLUSIVELY
- * through the API (POST/DELETE /api/config/metrics). The dashboard title and
- * subtitle live in the single-row `config` table as separate columns (no JSON
- * blob holding the metrics).
+ * key, name, why, G/Y/O thresholds, weight, position) and are managed
+ * EXCLUSIVELY through the API (POST/DELETE /api/config/metrics). `position`
+ * is the display order of the metric in the dashboard: GET /api/config
+ * returns the metrics sorted by position (ties broken by key). The dashboard
+ * title and subtitle live in the single-row `config` table as separate
+ * columns (no JSON blob holding the metrics).
  *
  * Scoring / trust model
  * ---------------------
@@ -37,6 +41,11 @@
  */
 
 require_once __DIR__ . '/../data/config.php';
+
+// SQLite database lives next to config.php (deploy/data/kpi.sqlite). The
+// path is derived here from __DIR__, so data/config.php only holds the
+// API_TOKEN secret and carries no path/credentials/branding constants.
+const DB_PATH = __DIR__ . '/../data/kpi.sqlite';
 
 /* ------------------------------------------------------------------ *
  *  Helpers
@@ -61,12 +70,12 @@ function read_json_body(): array
 
 function default_title(): string
 {
-    return defined('DASHBOARD_TITLE') ? DASHBOARD_TITLE : 'Dashboard KPI';
+    return 'Dashboard KPI';
 }
 
 function default_subtitle(): string
 {
-    return defined('DASHBOARD_SUBTITLE') ? DASHBOARD_SUBTITLE : '';
+    return '';
 }
 
 /* ------------------------------------------------------------------ *
@@ -133,10 +142,20 @@ function init_schema(PDO $pdo): void
             Y           REAL NOT NULL,
             O           REAL NOT NULL,
             weight      REAL NOT NULL DEFAULT 1,
+            position    INTEGER NOT NULL DEFAULT 0,
             created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );'
     );
+
+    // Column migration for installs created before `position` existed (the
+    // CREATE TABLE above already includes it for brand-new databases).
+    // Existing metrics default to position 0, which keeps them in the previous
+    // alphabetical order until the operator assigns positions via the API.
+    $cmCols = table_columns($pdo, 'config_metrics');
+    if (!isset($cmCols['position'])) {
+        $pdo->exec('ALTER TABLE config_metrics ADD COLUMN position INTEGER NOT NULL DEFAULT 0');
+    }
 
     // Detect a legacy install: the old `config` table stored the whole setup
     // (title/subtitle + metrics) as a JSON blob in a `json` column.
@@ -229,22 +248,25 @@ function config_meta(): array
     return ['title' => $row['title'], 'subtitle' => $row['subtitle']];
 }
 
-/** All configured metrics: metric_key => [name, why, G, Y, O, weight]. */
+/** All configured metrics: metric_key => [name, why, G, Y, O, weight, position]. */
 function metric_list(): array
 {
     $pdo = db();
     $rows = $pdo->query(
-        'SELECT metric_key, name, why, G, Y, O, weight FROM config_metrics ORDER BY metric_key'
+        'SELECT metric_key, name, why, G, Y, O, weight, position
+         FROM config_metrics
+         ORDER BY position ASC, metric_key ASC'
     )->fetchAll();
     $out = [];
     foreach ($rows as $r) {
         $out[$r['metric_key']] = [
-            'name'   => $r['name'],
-            'why'    => $r['why'],
-            'G'      => (float) $r['G'],
-            'Y'      => (float) $r['Y'],
-            'O'      => (float) $r['O'],
-            'weight' => (float) $r['weight'],
+            'name'     => $r['name'],
+            'why'      => $r['why'],
+            'G'        => (float) $r['G'],
+            'Y'        => (float) $r['Y'],
+            'O'        => (float) $r['O'],
+            'weight'   => (float) $r['weight'],
+            'position' => (int) $r['position'],
         ];
     }
     return $out;
@@ -277,29 +299,13 @@ function check_bearer(): void
     }
 }
 
-function check_basic(): void
-{
-    // If credentials are set in config.php, we also check them here
-    // (defence in depth, on top of the dashboard .htaccess).
-    if (defined('BASIC_AUTH_USER') && BASIC_AUTH_USER !== '' && BASIC_AUTH_USER !== 'CHANGE_ME') {
-        $user = $_SERVER['PHP_AUTH_USER'] ?? '';
-        $pass = $_SERVER['PHP_AUTH_PW'] ?? '';
-        if (!hash_equals(BASIC_AUTH_USER, (string) $user)
-            || !hash_equals(BASIC_AUTH_PASS, (string) $pass)) {
-            header('WWW-Authenticate: Basic realm="KPI Dashboard"');
-            json_response(['error' => 'unauthorized'], 401);
-        }
-    }
-    // Otherwise authentication is already enforced by the .htaccess (Apache).
-}
-
 /**
  * Authentication for READS (GET). Accepts EITHER:
  *   1. a valid Bearer token (API_TOKEN)  -> the collector/feeder can inspect
  *      the configuration and verify published snapshots with the same token
  *      it uses for writes (no Basic credentials needed), or
- *   2. HTTP Basic Auth (as before): the .htaccess enforces it for GETs and,
- *      if BASIC_AUTH_USER/PASS are set in config.php, PHP checks them too.
+ *   2. HTTP Basic Auth, enforced by the root .htaccess (`Require valid-user`
+ *      against .htpasswd) -> human/browser reads.
  */
 function check_read(): void
 {
@@ -314,8 +320,8 @@ function check_read(): void
         json_response(['error' => 'unauthorized'], 401);
     }
 
-    // Case 2: no Bearer token -> HTTP Basic Auth.
-    check_basic();
+    // Case 2: no Bearer token -> the request already passed the Apache Basic
+    // Auth gate (root .htaccess `Require valid-user`). No PHP re-check needed.
 }
 
 /* ------------------------------------------------------------------ *
@@ -338,7 +344,7 @@ function valid_metric_key(string $key): bool
 }
 
 /**
- * Validate a metric definition (array with key/name/why/G/Y/O/weight).
+ * Validate a metric definition (array with key/name/why/G/Y/O/weight/position).
  * On failure it emits a 400 and exits. Returns a normalized definition.
  */
 function validate_metric(array $m): array
@@ -358,14 +364,28 @@ function validate_metric(array $m): array
     if ($weight < 0) {
         json_response(['error' => 'invalid weight for "' . $key . '" (numeric >= 0)'], 400);
     }
+    // `position` is the display order of the metric in the dashboard. It is
+    // optional: when absent, defaults to 0 (keep the current order). Must be
+    // an integer >= 0. Duplicates are allowed: ties are broken by metric_key.
+    $position = 0;
+    if (isset($m['position'])) {
+        if (!is_numeric($m['position']) || (float) $m['position'] < 0
+            || (float) $m['position'] != floor((float) $m['position'])) {
+            json_response([
+                'error' => 'invalid position for "' . $key . '" (integer >= 0)',
+            ], 400);
+        }
+        $position = (int) $m['position'];
+    }
     return [
-        'key'    => $key,
-        'name'   => isset($m['name']) ? (string) $m['name'] : $key,
-        'why'    => isset($m['why'])  ? (string) $m['why']  : '',
-        'G'      => (float) $m['G'],
-        'Y'      => (float) $m['Y'],
-        'O'      => (float) $m['O'],
-        'weight' => $weight,
+        'key'      => $key,
+        'name'     => isset($m['name']) ? (string) $m['name'] : $key,
+        'why'      => isset($m['why'])  ? (string) $m['why']  : '',
+        'G'        => (float) $m['G'],
+        'Y'        => (float) $m['Y'],
+        'O'        => (float) $m['O'],
+        'weight'   => $weight,
+        'position' => $position,
     ];
 }
 
@@ -472,11 +492,11 @@ function handle_metric_post(): void
     $created = $exists->fetch() === false;
 
     $stmt = $pdo->prepare(
-        'INSERT INTO config_metrics (metric_key, name, why, G, Y, O, weight, updated_at)
-         VALUES (:k, :n, :w, :g, :y, :o, :wt, CURRENT_TIMESTAMP)
+        'INSERT INTO config_metrics (metric_key, name, why, G, Y, O, weight, position, updated_at)
+         VALUES (:k, :n, :w, :g, :y, :o, :wt, :p, CURRENT_TIMESTAMP)
          ON CONFLICT(metric_key) DO UPDATE SET
             name = :n2, why = :w2, G = :g2, Y = :y2, O = :o2,
-            weight = :wt2, updated_at = CURRENT_TIMESTAMP'
+            weight = :wt2, position = :p2, updated_at = CURRENT_TIMESTAMP'
     );
     $stmt->execute([
         ':k'   => $def['key'],
@@ -486,15 +506,17 @@ function handle_metric_post(): void
         ':y'   => $def['Y'],      ':y2'  => $def['Y'],
         ':o'   => $def['O'],      ':o2'  => $def['O'],
         ':wt'  => $def['weight'], ':wt2' => $def['weight'],
+        ':p'   => $def['position'], ':p2' => $def['position'],
     ]);
 
     $metric = [
-        'name'   => $def['name'],
-        'why'    => $def['why'],
-        'G'      => $def['G'],
-        'Y'      => $def['Y'],
-        'O'      => $def['O'],
-        'weight' => $def['weight'],
+        'name'     => $def['name'],
+        'why'      => $def['why'],
+        'G'        => $def['G'],
+        'Y'        => $def['Y'],
+        'O'        => $def['O'],
+        'weight'   => $def['weight'],
+        'position' => $def['position'],
     ];
     json_response(['ok' => true, 'created' => $created, 'key' => $def['key'], 'metric' => $metric]);
 }
@@ -706,6 +728,67 @@ function handle_history(): void
 }
 
 /**
+ * GET /api/metrics/{key}?from=&to= — history for a single KPI.
+ *
+ * Returns a chronological array of points for ONE metric over the period:
+ *   [ { date, value, score, zone }, ... ]
+ * Only the raw value and the server-computed 0-100 score for that metric are
+ * returned; there is no aggregate index here (the aggregate is per-day across
+ * all metrics and is served by GET /api/metrics).
+ */
+function handle_metric_history(string $key): void
+{
+    check_read();
+    $key = urldecode($key);
+    if (!valid_metric_key($key)) {
+        json_response(['error' => 'invalid metric key'], 400);
+    }
+
+    $from = isset($_GET['from']) ? (string) $_GET['from'] : '';
+    $to   = isset($_GET['to'])   ? (string) $_GET['to']   : '';
+
+    if ($to === '') {
+        $to = date('Y-m-d');
+    }
+    if ($from === '') {
+        $from = date('Y-m-d', strtotime($to . ' -29 days')); // default: last 30 days (inclusive)
+    }
+    if (!valid_date($from) || !valid_date($to)) {
+        json_response(['error' => 'invalid from/to parameters (expected YYYY-MM-DD)'], 400);
+    }
+    if ($from > $to) {
+        json_response(['error' => '"from" cannot be later than "to"'], 400);
+    }
+
+    $pdo = db();
+
+    // The metric must be part of the active configuration to be exposed.
+    $activeKeys = array_fill_keys(array_keys(metric_list()), true);
+    if (!isset($activeKeys[$key])) {
+        json_response(['error' => 'metric not found: ' . $key], 404);
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT date, value, score
+         FROM metrics WHERE metric_key = :k AND date BETWEEN :f AND :t ORDER BY date ASC'
+    );
+    $stmt->execute([':k' => $key, ':f' => $from, ':t' => $to]);
+
+    $points = [];
+    foreach ($stmt as $row) {
+        $score = (float) $row['score'];
+        $points[] = [
+            'date'  => $row['date'],
+            'value' => (float) $row['value'],
+            'score' => $score,
+            'zone'  => zone($score),
+        ];
+    }
+
+    json_response(['key' => $key, 'points' => $points]);
+}
+
+/**
  * DELETE /api/metrics - wipe the entire stored history.
  *
  * Removes every row from `metrics` (per-metric daily data points + stored
@@ -776,6 +859,13 @@ if (preg_match('#/config/metrics/([^/]+)$#', $path, $m)) {
 } elseif (substr($path, -7) === '/latest') {
     if ($method === 'GET') {
         handle_latest();
+    } else {
+        json_response(['error' => 'method not allowed'], 405);
+    }
+} elseif (preg_match('#/metrics/([^/]+)$#', $path, $m)) {
+    // single-KPI history: GET /api/metrics/{key}?from=&to=
+    if ($method === 'GET') {
+        handle_metric_history($m[1]);
     } else {
         json_response(['error' => 'method not allowed'], 405);
     }

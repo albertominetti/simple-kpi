@@ -60,8 +60,10 @@ hardcoded metric, everything comes from the backend via `GET /api/config`.
 
 - **Metric configuration** lives in the `config_metrics` table and is managed
   **exclusively through the API** (`POST /api/config/metrics`,
-  `DELETE /api/config/metrics/{key}`). There are **no business metric
-  defaults in the code** (`deploy/data/config.php` has no `METRICS` anymore).
+  `DELETE /api/config/metrics/{key}`). Each row also holds a `position`
+  (display order), so the dashboard order is managed through the API too,
+  not hardcoded. There are **no business metric defaults in the code**
+  (`deploy/data/config.php` has no `METRICS` anymore).
 - **Dashboard identity** (`title`, `subtitle`) lives in the single-row
   `config` table as plain columns, managed with `POST /api/config`.
 - **Data**: the client sends daily raw values with `POST /api/metrics`; the
@@ -112,10 +114,10 @@ of endpoints.
   (essential on many shared CGI/FastCGI hosts).
 - **Reads (GET)**: accept **either** a valid **Bearer token** (the same
   `API_TOKEN`, checked by `check_read()`) **or** HTTP Basic Auth. Basic Auth
-  is managed by the root `.htaccess` (`Require valid-user` + `.htpasswd`)
-  for human/browser access; as defence in depth, if
-  `BASIC_AUTH_USER`/`BASIC_AUTH_PASS` are set in `config.php`, PHP also
-  verifies the credentials.
+  is managed entirely by the root `.htaccess` (`Require valid-user` +
+  `.htpasswd`) for human/browser access. When a request reaches PHP without a
+  Bearer token it has already passed that Apache gate, so there is no
+  PHP-side credential re-check.
 - **Why reads accept the token**: the collector/feeder uses one credential
   (its token) for everything — it can `GET /api/config` to discover the
   active metrics and `GET /api/metrics/latest` / `GET /api/metrics` to
@@ -210,10 +212,19 @@ CREATE TABLE config_metrics (
     Y           REAL NOT NULL,          -- yellow threshold
     O           REAL NOT NULL,          -- orange threshold (above O -> red)
     weight      REAL NOT NULL DEFAULT 1,-- relative weight (normalized)
+    position    INTEGER NOT NULL DEFAULT 0, -- display order (lower = first)
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
+
+The frontend shows the metrics in `position` order: `metric_list()` sorts by
+`position ASC, metric_key ASC` and that same order is what `GET /api/config`
+returns (the Vue grid iterates `config.metrics`, so no frontend logic is
+needed). Installs created before `position` existed get the column added
+automatically by `init_schema()` (default `0`), which keeps the previous
+alphabetical order until the operator assigns positions via
+`POST /api/config/metrics`.
 
 ### Design choices
 
@@ -221,6 +232,11 @@ CREATE TABLE config_metrics (
   `config_metrics`. This makes create/update/delete trivial and queryable,
   avoids parsing a whole JSON document per request, and keeps the `config`
   table for the dashboard identity only.
+- **Order is data, not code**: the dashboard used to show metrics sorted
+  alphabetically by key (`ORDER BY metric_key`). A `position` column now
+  stores the display order and is managed through the same metric upsert
+  (`POST /api/config/metrics`), so the operator decides the order. Ties are
+  broken by `metric_key`, which keeps the output deterministic.
 - **Key-value data rows** (one row per metric/day instead of fixed columns):
   when metrics change, no schema migration is needed — "zero migration". One
   day = N rows in `metrics` + 1 row in `snapshot`.
@@ -372,7 +388,7 @@ configuration at snapshot time. The frontend uses directly the
 | XSS | Vue escapes text in templates; API returns only JSON |
 | Path traversal | The dev router blocks `/data` and paths with `..` |
 | Metric keys | Restricted to URL-safe charset before any DB/URL use |
-| Secrets | `API_TOKEN`/`BASIC_AUTH_*` in `data/config.php` (outside webroot, never served, never uploaded by CI) |
+| Secrets | `API_TOKEN` in `data/config.php` (outside webroot, never served, never uploaded by CI) |
 
 ---
 

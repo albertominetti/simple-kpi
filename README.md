@@ -38,8 +38,8 @@ Collector ──(daily, Bearer: POST + GET)──▶ PHP API + SQLite
     with the Bearer token also allowed for API reads/writes (validated by PHP).
     It is deployed as-is; `first_setup.php` copies it to the live `.htaccess`
     and generates `.htpasswd` in the same folder.
-  - `data/config.php` — **deployment secrets only** (`API_TOKEN`, `DB_PATH`,
-    optional Basic credentials, generic fallback title). **No metrics.**
+  - `data/config.php` — **deployment secret only** (`API_TOKEN`). The SQLite
+    path is derived by `api/metrics.php` from its own `__DIR__`. **No metrics.**
   - `data/.htaccess` — blocks access to `data/`
   - `data/kpi.sqlite` — seed database (shipped as `data/seed.sqlite` by CI)
 - **`frontend/`** — **Vue 3 + Vite + Chart.js** app, build only locally:
@@ -55,13 +55,16 @@ Metrics are **defined through the API**, never in code:
 | Table | Content | Managed by |
 |---|---|---|
 | `config` | single row: dashboard `title`, `subtitle` | `POST /api/config` |
-| `config_metrics` | one row per metric: `key`, `name`, `why`, `G`/`Y`/`O`, `weight` | `POST /api/config/metrics`, `DELETE /api/config/metrics/{key}` |
+| `config_metrics` | one row per metric: `key`, `name`, `why`, `G`/`Y`/`O`, `weight`, `position` (display order) | `POST /api/config/metrics`, `DELETE /api/config/metrics/{key}` |
 | `metrics` | daily raw values + scores | `POST /api/metrics` (add), `DELETE /api/metrics` (wipe all) |
 | `snapshot` | daily aggregate index + zone | `POST /api/metrics` (add), `DELETE /api/metrics` (wipe all) |
 
-`deploy/data/config.php` holds only `API_TOKEN`, `DB_PATH`, optional Basic
-credentials and a generic fallback title/subtitle (used before any
-`POST /api/config`). If you edit the fallback title there, no metric appears.
+`deploy/data/config.php` holds only the `API_TOKEN` secret. The SQLite path
+is derived by `api/metrics.php` from its own `__DIR__`
+(`deploy/data/kpi.sqlite`), the dashboard title/subtitle live in the `config`
+table, and Basic Auth is handled by the root `.htaccess`. The generic
+fallback title shown before any `POST /api/config` is hardcoded in
+`api/metrics.php` (`Dashboard KPI`).
 
 ## API
 
@@ -91,15 +94,17 @@ Full reference with request/response examples and curl commands:
   "title": "Production Dashboard",
   "subtitle": "updated daily at 20:00",
   "metrics": {
-    "orders": { "name": "Orders to fulfil", "why": "fast fulfilment keeps trust", "G": 0, "Y": 2, "O": 5, "weight": 0.6 },
-    "emails": { "name": "Emails to triage", "why": "quick replies improve trust", "G": 5, "Y": 15, "O": 30, "weight": 0.4 }
+    "orders": { "name": "Orders to fulfil", "why": "fast fulfilment keeps trust", "G": 0, "Y": 2, "O": 5, "weight": 0.6, "position": 0 },
+    "emails": { "name": "Emails to triage", "why": "quick replies improve trust", "G": 5, "Y": 15, "O": 30, "weight": 0.4, "position": 1 }
   }
 }
 ```
 
-When no metric exists yet, `metrics` is `{}`. The frontend renders the gauges
-from the keys/names/descriptions of this response — no frontend change is
-ever needed when metrics change.
+When no metric exists yet, `metrics` is `{}`. The metrics are always listed
+**ordered by `position`** (ascending, ties broken by `key`) — that is the
+order the frontend shows them in. The frontend renders the gauges from the
+keys/names/descriptions of this response — no frontend change is ever needed
+when metrics change.
 
 ### POST /api/config — set title/subtitle
 
@@ -123,7 +128,9 @@ Re-POSTing **replaces** title/subtitle.
 
 One metric per call (upsert by `key`). Validations: `key` URL-safe
 (`[A-Za-z0-9][A-Za-z0-9_.-]*`), thresholds `G`/`Y`/`O` numeric ≥ 0, `weight`
-numeric ≥ 0 (default `1`). `name`/`why` are optional.
+numeric ≥ 0 (default `1`), `position` integer ≥ 0 (default `0`, controls the
+display order: lower numbers first, ties broken by `key`). `name`/`why` are
+optional.
 
 ```bash
 curl -X POST https://example.com/dashboard/api/config/metrics \
@@ -134,7 +141,8 @@ curl -X POST https://example.com/dashboard/api/config/metrics \
     "name": "Orders to fulfil",
     "why": "fast fulfilment keeps trust",
     "G": 0, "Y": 2, "O": 5,
-    "weight": 0.6
+    "weight": 0.6,
+    "position": 0
   }'
 ```
 
@@ -225,11 +233,11 @@ for every metric; re-POSTing an existing key updates it.
 ```bash
 curl -X POST "$BASE/api/config/metrics" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"key":"orders","name":"Orders to fulfil","why":"fast fulfilment keeps trust","G":0,"Y":2,"O":5,"weight":0.6}'
+  -d '{"key":"orders","name":"Orders to fulfil","why":"fast fulfilment keeps trust","G":0,"Y":2,"O":5,"weight":0.6,"position":0}'
 
 curl -X POST "$BASE/api/config/metrics" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"key":"emails","name":"Emails to triage","why":"quick replies improve trust","G":5,"Y":15,"O":30,"weight":0.4}'
+  -d '{"key":"emails","name":"Emails to triage","why":"quick replies improve trust","G":5,"Y":15,"O":30,"weight":0.4,"position":1}'
 ```
 
 ### 2) Read the configuration (what to send)
@@ -253,6 +261,7 @@ Meaning of each metric field:
 | `why` | Short "why it matters" shown under the name |
 | `G`, `Y`, `O` | **Thresholds** of the zones: green `[0..G]`, yellow `[G+1..Y]`, orange `[Y+1..O]`, red `[O+1..∞]` |
 | `weight` | **Relative weight** in the aggregate (weights are normalized; the sum does NOT need to be 1) |
+| `position` | **Display order** on the dashboard: lower numbers first, ties broken by `key` (default `0`; omit to keep the current order) |
 
 ### 3) Send (or update) the values of the day
 
@@ -430,7 +439,7 @@ curl -u user:password https://example.com/dashboard/api/metrics/latest
 # Update one of the seeded metrics (upsert by key; Bearer)
 curl -X POST https://example.com/dashboard/api/config/metrics \
   -H "Authorization: Bearer YOUR_TOKEN" -H "Content-Type: application/json" \
-  -d '{"key":"orders","name":"Orders","G":0,"Y":2,"O":5,"weight":1}'
+  -d '{"key":"orders","name":"Orders","G":0,"Y":2,"O":5,"weight":1,"position":0}'
 
 # Test snapshot (Bearer) - must include ALL active keys (here the 5 seed keys)
 curl -X POST https://example.com/dashboard/api/metrics \
@@ -446,10 +455,11 @@ token (`check_read()` on GETs, `check_bearer()` on POST/DELETE). An invalid
 token therefore still gets a `401` from PHP. Direct HTTP requests to
 `.htaccess`, `.htpasswd` or `example.htaccess` are **refused by the
 generated `.htaccess` itself** (403, via `<FilesMatch>` deny + `mod_rewrite`),
-so the auth files can never be downloaded. If the host is Apache 2.2 (no
-`<RequireAny>`), move the root `.htaccess` into a subfolder that contains
-only the dashboard and set `BASIC_AUTH_USER`/`BASIC_AUTH_PASS` in
-`config.php` (the API GETs will then be protected by PHP itself).
+so the auth files can never be downloaded. Note: Apache 2.2 (no
+`<RequireAny>`) is **not supported** for the Bearer-token reads/writes — it
+applies plain Basic Auth to every request and cannot let Bearer-only requests
+reach PHP (there is no PHP-side Basic/Bearer re-check anymore). Use
+Apache 2.4.
 
 ## Formula notes
 

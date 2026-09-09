@@ -298,6 +298,14 @@ components:
           minimum: 0
           default: 1
           description: Relative weight (normalised by total at scoring time)
+        position:
+          type: integer
+          minimum: 0
+          default: 0
+          description: >-
+            Display order of the metric on the dashboard. Lower numbers come
+            first; metrics are sorted by position ascending, ties broken by
+            key. Omit to keep the current order (defaults to 0).
 
     Metric:
       type: object
@@ -308,6 +316,7 @@ components:
         Y: { type: number }
         O: { type: number }
         weight: { type: number }
+        position: { type: integer, description: Display order (lower = first); GET /api/config sorts by this ascending, ties by key }
 
     Snapshot:
       type: object

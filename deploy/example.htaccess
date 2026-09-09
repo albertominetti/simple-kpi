@@ -29,9 +29,11 @@
 #                                  Auth.
 #
 # WARNING: with Apache 2.2 (no mod_authz_core) the <RequireAny> block is
-# skipped and plain Basic Auth applies to everything. In that case, to let
-# the collector read with the Bearer token, rely on the BASIC_AUTH check in
-# config.php to protect the API GETs (see README/TECH).
+# skipped and the fallback below applies plain Basic Auth to EVERY request,
+# including POST/DELETE; Bearer-only requests cannot reach PHP because
+# Apache has no way to let them through (there is no PHP-side Basic/Bearer
+# re-check anymore). Modern Apache 2.4 is required for the Bearer-token
+# reads/writes described above (see README/TECH).
 # ---------------------------------------------------------------------------
 
 AuthType Basic
