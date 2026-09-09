@@ -106,6 +106,11 @@ order the frontend shows them in. The frontend renders the gauges from the
 keys/names/descriptions of this response — no frontend change is ever needed
 when metrics change.
 
+**Dashboard interaction**: clicking a metric card switches the chart below to
+**that single metric's history** (its raw value over time, coloured by zone,
+via `GET /api/metrics/{key}`). Clicking another card switches metric; the
+"← All metrics" button returns the chart to the overall index trend.
+
 ### POST /api/config — set title/subtitle
 
 Manages **only** the dashboard `title`/`subtitle`. Sending a `metrics` field

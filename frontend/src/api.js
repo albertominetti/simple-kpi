@@ -40,3 +40,12 @@ export function fetchHistory(from, to) {
   const query = qs.toString();
   return request(`metrics${query ? `?${query}` : ''}`);
 }
+
+/** GET /api/metrics/{key}?from=…&to=… — history of a SINGLE metric. */
+export function fetchMetricHistory(key, from, to) {
+  const qs = new URLSearchParams();
+  if (from) qs.set('from', from);
+  if (to) qs.set('to', to);
+  const query = qs.toString();
+  return request(`metrics/${encodeURIComponent(key)}${query ? `?${query}` : ''}`);
+}
