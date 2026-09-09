@@ -30,14 +30,20 @@
         v-if="latest && latest.metrics && config.metrics"
         :config="config"
         :metrics="latest.metrics"
+        :selected-key="selectedKey"
+        @select="selectedKey = $event"
       />
       <div v-else-if="!loading" class="empty">
         No data available: wait for the first POST from the collector.
       </div>
     </div>
 
-    <!-- Trend below, full width -->
-    <HistoryChart />
+    <!-- Trend below, full width: aggregate index, or a single metric when one is selected -->
+    <HistoryChart
+      :config="config"
+      :selected-key="selectedKey"
+      @clear="selectedKey = null"
+    />
   </div>
 </template>
 
@@ -50,6 +56,7 @@ import { fetchConfig, fetchLatest } from './api.js';
 
 const config = ref({ title: 'Dashboard KPI', subtitle: '', metrics: {} });
 const latest = ref(null);
+const selectedKey = ref(null); // null = aggregate index chart; a metric key = single-metric history
 const loading = ref(false);
 const error = ref('');
 

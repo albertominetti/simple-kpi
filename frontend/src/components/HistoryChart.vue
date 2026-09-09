@@ -1,8 +1,15 @@
 <template>
   <section class="history">
-    <h2>Trend</h2>
+    <h2>{{ selectedKey ? `History · ${metricName}` : 'Trend' }}</h2>
 
     <div class="controls">
+      <template v-if="selectedKey">
+        <button class="btn back-btn" title="Back to the overall index" @click="emit('clear')">
+          ← All metrics
+        </button>
+        <span class="metric-tag">Metric: {{ metricName }}</span>
+      </template>
+
       <button
         v-for="v in views"
         :key="v.id"
@@ -29,12 +36,18 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Chart, registerables } from 'chart.js';
-import { fetchHistory } from '../api.js';
-import { ZONE } from '../metrics.js';
+import { fetchHistory, fetchMetricHistory } from '../api.js';
+import { ZONE, formatNumber } from '../metrics.js';
 
 Chart.register(...registerables);
+
+const props = defineProps({
+  config: { type: Object, required: true },    // setup from the backend (metric names/definitions)
+  selectedKey: { type: String, default: null }, // null = aggregate index; a key = that single metric
+});
+const emit = defineEmits(['clear']);
 
 const views = [
   { id: '7', label: '7 days' },
@@ -49,7 +62,14 @@ const canvas = ref(null);
 const noData = ref(false);
 
 let chart = null;
-let currentData = [];
+let currentData = [];   // normalized rows: { date, y, score?, zone }
+let isMetric = false;   // whether currentData comes from a single metric
+
+const metricName = computed(() => {
+  if (!props.selectedKey) return '';
+  const def = props.config?.metrics?.[props.selectedKey];
+  return def ? def.name : props.selectedKey;
+});
 
 function localDate(d) {
   const y = d.getFullYear();
@@ -62,10 +82,9 @@ function today() {
   return localDate(new Date());
 }
 
-async function load() {
+function range() {
   let from;
   let to;
-
   if (view.value === 'custom') {
     from = fromInput.value || today();
     to = toInput.value || today();
@@ -77,27 +96,53 @@ async function load() {
     from = localDate(fromD);
     to = localDate(toD);
   }
+  return { from, to };
+}
 
+async function load() {
+  const { from, to } = range();
   try {
-    currentData = await fetchHistory(from, to);
+    if (props.selectedKey) {
+      // Single metric: raw value over time + its zone/score.
+      const res = await fetchMetricHistory(props.selectedKey, from, to);
+      const points = res.points || [];
+      currentData = points.map((p) => ({
+        date: p.date,
+        y: p.value,
+        score: p.score,
+        zone: p.zone,
+      }));
+      isMetric = true;
+    } else {
+      // Aggregate index of the whole dashboard.
+      const rows = await fetchHistory(from, to);
+      currentData = rows.map((r) => ({
+        date: r.date,
+        y: r.index,
+        zone: r.zone,
+      }));
+      isMetric = false;
+    }
     noData.value = currentData.length === 0;
-    draw(currentData);
+    draw();
   } catch (e) {
     noData.value = true;
+    if (chart) chart.destroy();
+    chart = null;
     // eslint-disable-next-line no-console
     console.error('Error loading history:', e.message);
   }
 }
 
-function draw(data) {
+function draw() {
   if (!canvas.value) return;
   const ctx = canvas.value.getContext('2d');
 
-  const labels = data.map((d) => d.date);
-  const values = data.map((d) => d.index);
-  const pointColors = data.map((d) => (ZONE[d.zone] || ZONE.green).color);
-
   if (chart) chart.destroy();
+
+  const labels = currentData.map((d) => d.date);
+  const values = currentData.map((d) => d.y);
+  const pointColors = currentData.map((d) => (ZONE[d.zone] || ZONE.green).color);
 
   chart = new Chart(ctx, {
     type: 'line',
@@ -105,7 +150,7 @@ function draw(data) {
       labels,
       datasets: [
         {
-          label: 'Index',
+          label: isMetric ? metricName.value || props.selectedKey : 'Index',
           data: values,
           borderColor: '#111827',
           backgroundColor: 'rgba(17, 24, 39, 0.07)',
@@ -122,11 +167,9 @@ function draw(data) {
       responsive: true,
       maintainAspectRatio: false,
       scales: {
-        y: {
-          min: 0,
-          max: 100,
-          ticks: { stepSize: 25 },
-        },
+        y: isMetric
+          ? { beginAtZero: true }
+          : { min: 0, max: 100, ticks: { stepSize: 25 } },
         x: {
           ticks: { maxTicksLimit: 14, maxRotation: 45 },
         },
@@ -137,8 +180,12 @@ function draw(data) {
           callbacks: {
             title: (items) => (items.length ? items[0].label : ''),
             label: (c) => {
-              const d = data[c.dataIndex];
+              const d = currentData[c.dataIndex];
               const z = d && d.zone ? ZONE[d.zone].label : '';
+              if (isMetric) {
+                const scoreTxt = d && d.score != null ? ` · score ${formatNumber(d.score)}` : '';
+                return ` ${formatNumber(d.y)} — zone ${z}${scoreTxt}`;
+              }
               return ` Index: ${c.parsed.y} — zone ${z}`;
             },
           },
@@ -165,6 +212,7 @@ function applyCustom() {
 }
 
 onMounted(load);
+watch(() => props.selectedKey, load);
 onBeforeUnmount(() => {
   if (chart) chart.destroy();
 });
