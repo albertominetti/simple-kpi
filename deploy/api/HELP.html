@@ -88,6 +88,7 @@ curl -u "$USER:$PASS" "$BASE/api/config"        # or with Basic credentials</cod
     <tr><td><span class="tag post">POST</span></td><td class="mono">/api/metrics</td><td>Bearer</td><td>Save/replace the daily snapshot</td></tr>
     <tr><td><span class="tag delete">DELETE</span></td><td class="mono">/api/metrics</td><td>Bearer</td><td>Delete <b>all</b> stored history (data points + daily snapshots); keeps the configuration</td></tr>
     <tr><td><span class="tag get">GET</span></td><td class="mono">/api/metrics/latest</td><td>Basic or Bearer</td><td>Latest snapshot (gauges)</td></tr>
+    <tr><td><span class="tag get">GET</span></td><td class="mono">/api/metrics/{key}?from=&amp;to=</td><td>Basic or Bearer</td><td>History of a single metric (raw value + score)</td></tr>
     <tr><td><span class="tag get">GET</span></td><td class="mono">/api/metrics?from=&amp;to=</td><td>Basic or Bearer</td><td>History (default last 30 days)</td></tr>
   </table>
 
@@ -202,6 +203,16 @@ curl -u "$USER:$PASS" "$BASE/api/config"
 curl -H "Authorization: Bearer $TOKEN" "$BASE/api/metrics?from=2026-08-01&amp;to=2026-08-24"
 # or with Basic credentials
 curl -u "$USER:$PASS" "$BASE/api/metrics?from=2026-08-01&amp;to=2026-08-24"</code></pre>
+
+  <h3><span class="tag get">GET</span> <code>/api/metrics/{key}</code> — single-metric history</h3>
+  <p>Auth: <span class="tag auth">Basic</span> or <span class="tag auth">Bearer</span>. Same <code>from</code>/<code>to</code> semantics as the aggregate history (default = last 30 days), but for <b>one metric only</b>. Returns the raw <code>value</code> over time plus the server-computed <code>score</code> and <code>zone</code> per day — used by the dashboard when you click a metric card.</p>
+  <pre><code>curl -H "Authorization: Bearer $TOKEN" "$BASE/api/metrics/orders?from=2026-08-01&amp;to=2026-08-24"
+
+200 {"key": "orders", "points": [
+  {"date": "2026-08-01", "value": 2, "score": 29.2, "zone": "yellow"},
+  {"date": "2026-08-02", "value": 1, "score": 26.0, "zone": "yellow"}
+]}</code></pre>
+  <p>A key that is not in the active configuration returns <code>404</code>.</p>
 
   <h2>7 · Errors &amp; conventions</h2>
   <table>

@@ -250,6 +250,53 @@ paths:
                         additionalProperties:
                           $ref: '#/components/schemas/MetricPoint'
 
+  /api/metrics/{key}:
+    get:
+      tags: [metrics]
+      summary: History of a single metric (raw value + score)
+      description: >-
+        Chronological points for ONE metric over the period (default last 30
+        days). Used by the dashboard when a metric card is selected. The key
+        must be part of the active configuration (404 otherwise).
+      security:
+        - basicAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema: { type: string }
+          example: orders
+        - name: from
+          in: query
+          required: false
+          schema: { type: string, format: date, example: '2026-08-01' }
+        - name: to
+          in: query
+          required: false
+          schema: { type: string, format: date, example: '2026-08-24' }
+      responses:
+        '200':
+          description: Single-metric history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key: { type: string, example: orders }
+                  points:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        date: { type: string, format: date }
+                        value: { type: number, description: Raw value sent by the collector }
+                        score: { type: number, description: Re-computed 0-100 score }
+                        zone: { type: string, enum: [green, yellow, orange, red] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
 components:
   securitySchemes:
     bearerAuth:

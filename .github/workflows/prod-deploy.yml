@@ -13,7 +13,7 @@ name: Deploy production (FTPS)
 #                          server-owned files below, then self-seals
 #     api/
 #       .htaccess       <- rewrite api/config, api/config/metrics(/{key}),
-#                          api/metrics, api/metrics/latest -> metrics.php
+#                          api/metrics, api/metrics/latest(/{key}) -> metrics.php
 #       metrics.php     <- the whole backend (server side API)
 #       HELP.html       <- API reference for humans/AI agents
 #       openapi.yaml    <- machine-readable OpenAPI spec of the same API
