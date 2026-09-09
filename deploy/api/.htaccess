@@ -4,6 +4,7 @@
 #   /api/config/metrics/{key}    -> metrics.php   (DELETE a metric)
 #   /api/metrics                 -> metrics.php   (POST snapshot, GET history, DELETE wipe all)
 #   /api/metrics/latest          -> metrics.php   (GET latest snapshot)
+#   /api/metrics/{key}           -> metrics.php   (GET history of a single KPI)
 # The PHP file parses $_SERVER['REQUEST_URI'] to distinguish the endpoints.
 
 RewriteEngine On
@@ -11,6 +12,7 @@ RewriteRule ^config/metrics/([^/]+)$ metrics.php [L,QSA]
 RewriteRule ^config/metrics$ metrics.php [L,QSA]
 RewriteRule ^config$ metrics.php [L,QSA]
 RewriteRule ^metrics/latest$ metrics.php [L,QSA]
+RewriteRule ^metrics/([^/]+)$ metrics.php [L,QSA]
 RewriteRule ^metrics$ metrics.php [L,QSA]
 
 # Makes the Authorization header available to PHP (essential on many shared
